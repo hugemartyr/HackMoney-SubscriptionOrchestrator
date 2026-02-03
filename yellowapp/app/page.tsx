@@ -1,53 +1,80 @@
 "use client";
 
+import { useYellow } from "../lib/yellow/useYellow";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { useAccount } from "wagmi"; // Import this to get the wallet state
 import { useEffect } from "react";
-import { useYellow } from "@/lib/yellow/useYellow";
-import { createSubscription } from "@/lib/subscriptions/api";
-import {
-  runBillingCycle,
-  calculateSessionDebt,
-} from "@/lib/subscriptions/billing";
 
-export default function Page() {
-  const { init, createSession, address, sessionId } = useYellow();
+export default function Home() {
+  // 1. Get the address directly from Wagmi/RainbowKit
+  const { address: walletAddress, isConnected } = useAccount();
 
-  // ✅ Billing only — no wallet access
+  // 2. Destructure your yellow logic
+  const { init, createSession, sendPayment } = useYellow();
+  const PartnerAdress = "0xd1ff23d7D928Fbc895193691adB7d5059333A028";
+
+  const handleYellowConnect = async () => {
+    if (walletAddress) {
+      await init(walletAddress);
+    }
+  };
+
+  // 3. Optional: Automatically sync the wallet with your Yellow initialization
+  // If your useYellow hook needs the address to "init", we do it here.
   useEffect(() => {
-    runBillingCycle();
-  }, []);
+    if (isConnected && walletAddress) {
+      // If your init function requires the address, pass it here
+      // init(walletAddress);
+      console.log("Wallet synchronized with Yellow Orchestrator");
+    }
+  }, [isConnected, walletAddress, init]);
 
   return (
-    <main style={{ padding: 24 }}>
-      <h1>Yellow Subscriptions MVP</h1>
+    <main style={{ padding: 24, fontFamily: "sans-serif" }}>
+      <h1>Yellow Payment App</h1>
 
-      {!address && <button onClick={init}>Connect Wallet</button>}
+      <div style={{ marginBottom: 20 }}>
+        <ConnectButton />
+      </div>
 
-      {address && !sessionId && (
-        <button onClick={() => createSession("0xMerchantAddress")}>
-          Open Yellow Session
-        </button>
-      )}
-
-      {sessionId && (
-        <>
-          <p>Connected: {address}</p>
-          <p>Session ID: {sessionId}</p>
+      {isConnected && walletAddress && (
+        <section
+          style={{
+            marginTop: 20,
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+            maxWidth: "300px",
+          }}
+        >
+          <p>
+            <strong>Status:</strong> Connected to Yellow
+          </p>
+          <p>
+            <strong>Address:</strong> {walletAddress}
+          </p>
 
           <button
-            onClick={() =>
-              createSubscription({
-                merchantAddress: "0xMerchantAddress",
-                amountPerCycle: 10,
-                yellowSessionId: sessionId,
-                userAddress: address!,
-              })
-            }
+            onClick={() => init(walletAddress)}
+            style={{ padding: "10px", cursor: "pointer" }}
           >
-            Add $10/month Subscription
+            Initialize Yellow Session
           </button>
 
-          <p>Outstanding: ${calculateSessionDebt(sessionId)}</p>
-        </>
+          <button
+            onClick={() => createSession(PartnerAdress)}
+            style={{ padding: "10px", cursor: "pointer" }}
+          >
+            Create Session
+          </button>
+
+          <button
+            onClick={() => sendPayment("100000", PartnerAdress)}
+            style={{ padding: "10px", cursor: "pointer" }}
+          >
+            Send 0.1 USDC
+          </button>
+        </section>
       )}
     </main>
   );

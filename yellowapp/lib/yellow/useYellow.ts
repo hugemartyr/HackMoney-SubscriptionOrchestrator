@@ -1,41 +1,38 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useCallback } from "react";
 import { SimplePaymentApp } from "./SimplePaymentApp";
+import { useAccount } from "wagmi";
 
 export function useYellow() {
   const appRef = useRef<SimplePaymentApp | null>(null);
   const [address, setAddress] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const { address: walletAddress, isConnected } = useAccount();
 
-  const init = async () => {
+  // We use useCallback to ensure the function reference is stable for useEffects
+  const init = async (walletAddress?: string) => {
     if (!appRef.current) {
       appRef.current = new SimplePaymentApp();
     }
-
-    const addr = await appRef.current.init();
-    setAddress(addr || null);
-
-    const storedSession = localStorage.getItem("yellow_session_id");
-    if (storedSession) {
-      setSessionId(storedSession);
-    }
+    // Pass the address here!
+    const addr = await appRef.current.init(walletAddress);
+    setAddress(addr);
   };
 
-  const createSession = async (merchant: string) => {
-    await appRef.current?.createSession(merchant);
+  const createSession = async (partner: string) => {
+    if (!appRef.current) return console.error("Yellow App not initialized");
+    await appRef.current.createSession(partner);
+  };
 
-    // session_created comes async, poll once
-    setTimeout(() => {
-      const sid = localStorage.getItem("yellow_session_id");
-      if (sid) setSessionId(sid);
-    }, 500);
+  const sendPayment = async (amount: string, recipient: string) => {
+    if (!appRef.current) return console.error("Yellow App not initialized");
+    await appRef.current.sendPayment(amount, recipient);
   };
 
   return {
-    address,
-    sessionId,
+    address, // This will now be populated after calling init()
     init,
     createSession,
+    sendPayment,
   };
 }
