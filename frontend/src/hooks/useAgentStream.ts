@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { SSEEvent } from '@/lib/types';
 import { useProjectContext } from '@/context/ProjectContext';
 
@@ -7,6 +7,8 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 export function useAgentStream() {
   const [logs, setLogs] = useState<string[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const controllerRef = useRef<AbortController | null>(null);
+  const runIdRef = useRef(0);
   const {
     updateFileTree,
     updateFileContent,
@@ -15,19 +17,33 @@ export function useAgentStream() {
     addPendingDiff,
     state,
     setBuildStatus,
+    openFile,
   } = useProjectContext();
 
   const startAgent = async (prompt: string) => {
+    // Prevent double-submit/races that can create multiple concurrent streams.
+    if (isStreaming) return;
+
     setIsStreaming(true);
     setLogs([]);
 
     try {
+      // Abort any previous stream (best-effort).
+      controllerRef.current?.abort();
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      const runId = ++runIdRef.current;
+
       const response = await fetch(`${API_BASE_URL}/api/yellow-agent/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
+        signal: controller.signal,
       });
 
+      if (!response.ok) {
+        throw new Error(`Agent stream failed: ${response.status}`);
+      }
       if (!response.body) return;
 
       const reader = response.body.getReader();
@@ -35,6 +51,8 @@ export function useAgentStream() {
       let buffer = '';
 
       while (true) {
+        // If a new run starts, stop processing this one.
+        if (runId !== runIdRef.current) break;
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -54,6 +72,10 @@ export function useAgentStream() {
         }
       }
     } catch (err) {
+      // Ignore aborts (expected when restarting).
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return;
+      }
       setLogs(prev => [...prev, `❌ Error connecting to agent`]);
       console.error(err);
     } finally {
@@ -96,6 +118,11 @@ export function useAgentStream() {
           oldCode: event.oldCode,
           newCode: event.newCode,
         });
+        // Open proposed changes as a virtual editor tab.
+        // We store the proposed new code under a virtual path so the editor can treat it like a normal file.
+        const diffTabPath = `__diff__/${event.file}`;
+        updateFileContent(diffTabPath, event.newCode);
+        openFile(diffTabPath);
         const pendingCount = Object.keys(state.pendingDiffs).length + 1;
         setLogs(prev => [...prev, `📋 Diff ready for: ${event.file} (${pendingCount} pending)`]);
         break;

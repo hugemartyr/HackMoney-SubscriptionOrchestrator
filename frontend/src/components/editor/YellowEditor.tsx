@@ -10,6 +10,8 @@ export default function YellowEditor() {
   const { handleEditorDidMount } = useEditorContext();
   const { state, updateDraftContent } = useProjectContext();
   const [isAgentEditing, setIsAgentEditing] = useState(false);
+  const isDiffTab = !!state.currentFile?.startsWith('__diff__/');
+  const diffTarget = isDiffTab ? state.currentFile?.slice('__diff__/'.length) : null;
 
   // Update editor content when file is selected or content changes
   useEffect(() => {
@@ -48,15 +50,20 @@ export default function YellowEditor() {
           Agent is editing this file...
         </div>
       )}
+      {isDiffTab && diffTarget && (
+        <div className="px-4 py-2 bg-blue-500/10 border-b border-blue-500/40 text-blue-300 text-xs">
+          Reviewing agent diff for: <span className="font-mono text-blue-200">{diffTarget}</span> (apply/discard from the tab)
+        </div>
+      )}
       {state.currentFile && (
         <div className="px-4 py-1 bg-gray-900 border-b border-gray-800 text-xs text-gray-400 font-mono">
-          {state.currentFile}
+          {isDiffTab && diffTarget ? diffTarget : state.currentFile}
         </div>
       )}
       <div className="flex-1 min-h-0">
         <Editor 
           height="100%" 
-          language={getLanguage(state.currentFile)}
+          language={getLanguage(isDiffTab && diffTarget ? diffTarget : state.currentFile)}
           value={
             state.currentFile
               ? (state.draftContents[state.currentFile] ??
