@@ -1,0 +1,190 @@
+'use client';
+
+import React, { createContext, useContext, useState, ReactNode } from 'react';
+import { FileSystemNode, AuditResult, DiffData } from '@/lib/types';
+
+interface ProjectState {
+  isUploaded: boolean;
+  projectName: string | null;
+  fileTree: FileSystemNode | null;
+  openFiles: string[];
+  currentFile: string | null;
+  fileContents: Record<string, string>;
+  draftContents: Record<string, string>;
+  dirtyFiles: Record<string, boolean>;
+  terminalLogs: string[];
+  auditResult: AuditResult | null;
+  pendingDiff: DiffData | null;
+  buildStatus: 'idle' | 'building' | 'success' | 'error';
+  buildOutput: string;
+}
+
+interface ProjectContextType {
+  state: ProjectState;
+  setState: React.Dispatch<React.SetStateAction<ProjectState>>;
+  updateFileTree: (tree: FileSystemNode) => void;
+  updateFileContent: (path: string, content: string) => void;
+  updateDraftContent: (path: string, content: string) => void;
+  markFileSaved: (path: string, content: string) => void;
+  addTerminalLog: (line: string) => void;
+  setAuditResult: (result: AuditResult | null) => void;
+  setPendingDiff: (diff: DiffData | null) => void;
+  setBuildStatus: (status: 'idle' | 'building' | 'success' | 'error', output?: string) => void;
+  setCurrentFile: (path: string | null) => void;
+  openFile: (path: string) => void;
+  closeFile: (path: string) => void;
+  markProjectUploaded: (name: string) => void;
+}
+
+const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
+
+const initialState: ProjectState = {
+  isUploaded: false,
+  projectName: null,
+  fileTree: null,
+  openFiles: [],
+  currentFile: null,
+  fileContents: {},
+  draftContents: {},
+  dirtyFiles: {},
+  terminalLogs: [],
+  auditResult: null,
+  pendingDiff: null,
+  buildStatus: 'idle',
+  buildOutput: '',
+};
+
+export function ProjectProvider({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<ProjectState>(initialState);
+
+  const updateFileTree = (tree: FileSystemNode) => {
+    setState(prev => ({ ...prev, fileTree: tree }));
+  };
+
+  const updateFileContent = (path: string, content: string) => {
+    setState(prev => ({
+      ...prev,
+      fileContents: { ...prev.fileContents, [path]: content },
+      // Only overwrite draft if user hasn't edited this file locally.
+      draftContents: prev.dirtyFiles[path]
+        ? prev.draftContents
+        : { ...prev.draftContents, [path]: content },
+    }));
+  };
+
+  const updateDraftContent = (path: string, content: string) => {
+    setState(prev => ({
+      ...prev,
+      draftContents: { ...prev.draftContents, [path]: content },
+      dirtyFiles: { ...prev.dirtyFiles, [path]: true },
+    }));
+  };
+
+  const markFileSaved = (path: string, content: string) => {
+    setState(prev => ({
+      ...prev,
+      fileContents: { ...prev.fileContents, [path]: content },
+      draftContents: { ...prev.draftContents, [path]: content },
+      dirtyFiles: { ...prev.dirtyFiles, [path]: false },
+    }));
+  };
+
+  const addTerminalLog = (line: string) => {
+    setState(prev => ({
+      ...prev,
+      terminalLogs: [...prev.terminalLogs, line],
+    }));
+  };
+
+  const setAuditResult = (result: AuditResult | null) => {
+    setState(prev => ({ ...prev, auditResult: result }));
+  };
+
+  const setPendingDiff = (diff: DiffData | null) => {
+    setState(prev => ({ ...prev, pendingDiff: diff }));
+  };
+
+  const setBuildStatus = (status: 'idle' | 'building' | 'success' | 'error', output: string = '') => {
+    setState(prev => ({
+      ...prev,
+      buildStatus: status,
+      buildOutput: output,
+    }));
+  };
+
+  const setCurrentFile = (path: string | null) => {
+    setState(prev => ({ ...prev, currentFile: path }));
+  };
+
+  const openFile = (path: string) => {
+    setState(prev => {
+      const openFiles = prev.openFiles.includes(path)
+        ? prev.openFiles
+        : [...prev.openFiles, path];
+      return { ...prev, openFiles, currentFile: path };
+    });
+  };
+
+  const closeFile = (path: string) => {
+    setState(prev => {
+      if (!prev.openFiles.includes(path)) return prev;
+
+      const idx = prev.openFiles.indexOf(path);
+      const openFiles = prev.openFiles.filter(p => p !== path);
+
+      let currentFile = prev.currentFile;
+      if (prev.currentFile === path) {
+        // Switch to neighbor tab if possible
+        if (openFiles.length === 0) {
+          currentFile = null;
+        } else if (idx - 1 >= 0) {
+          currentFile = openFiles[Math.min(idx - 1, openFiles.length - 1)];
+        } else {
+          currentFile = openFiles[0];
+        }
+      }
+
+      // Clean up per-file state to avoid leaks
+      const { [path]: _c, ...fileContents } = prev.fileContents;
+      const { [path]: _d, ...draftContents } = prev.draftContents;
+      const { [path]: _f, ...dirtyFiles } = prev.dirtyFiles;
+
+      return { ...prev, openFiles, currentFile, fileContents, draftContents, dirtyFiles };
+    });
+  };
+
+  const markProjectUploaded = (name: string) => {
+    setState(prev => ({ ...prev, isUploaded: true, projectName: name }));
+  };
+
+  const value: ProjectContextType = {
+    state,
+    setState,
+    updateFileTree,
+    updateFileContent,
+    updateDraftContent,
+    markFileSaved,
+    addTerminalLog,
+    setAuditResult,
+    setPendingDiff,
+    setBuildStatus,
+    setCurrentFile,
+    openFile,
+    closeFile,
+    markProjectUploaded,
+  };
+
+  return (
+    <ProjectContext.Provider value={value}>
+      {children}
+    </ProjectContext.Provider>
+  );
+}
+
+export function useProjectContext() {
+  const context = useContext(ProjectContext);
+  if (context === undefined) {
+    throw new Error('useProjectContext must be used within a ProjectProvider');
+  }
+  return context;
+}

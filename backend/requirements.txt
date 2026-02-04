@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+langgraph
+langchain
+langchain-anthropic
+e2b-code-interpreter
+python-multipart
+supabase
