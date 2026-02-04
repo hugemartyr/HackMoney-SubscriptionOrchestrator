@@ -12,7 +12,8 @@ export function useAgentStream() {
     updateFileContent,
     addTerminalLog,
     setAuditResult,
-    setPendingDiff,
+    addPendingDiff,
+    state,
     setBuildStatus,
   } = useProjectContext();
 
@@ -90,12 +91,13 @@ export function useAgentStream() {
         break;
 
       case 'diff':
-        setPendingDiff({
+        addPendingDiff({
           file: event.file,
           oldCode: event.oldCode,
           newCode: event.newCode,
         });
-        setLogs(prev => [...prev, `📋 Diff ready for: ${event.file}`]);
+        const pendingCount = Object.keys(state.pendingDiffs).length + 1;
+        setLogs(prev => [...prev, `📋 Diff ready for: ${event.file} (${pendingCount} pending)`]);
         break;
 
       case 'build':

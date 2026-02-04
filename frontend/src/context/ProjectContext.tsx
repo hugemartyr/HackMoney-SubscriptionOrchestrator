@@ -14,7 +14,7 @@ interface ProjectState {
   dirtyFiles: Record<string, boolean>;
   terminalLogs: string[];
   auditResult: AuditResult | null;
-  pendingDiff: DiffData | null;
+  pendingDiffs: Record<string, DiffData>;
   buildStatus: 'idle' | 'building' | 'success' | 'error';
   buildOutput: string;
 }
@@ -28,7 +28,9 @@ interface ProjectContextType {
   markFileSaved: (path: string, content: string) => void;
   addTerminalLog: (line: string) => void;
   setAuditResult: (result: AuditResult | null) => void;
-  setPendingDiff: (diff: DiffData | null) => void;
+  addPendingDiff: (diff: DiffData) => void;
+  removePendingDiff: (file: string) => void;
+  clearPendingDiffs: () => void;
   setBuildStatus: (status: 'idle' | 'building' | 'success' | 'error', output?: string) => void;
   setCurrentFile: (path: string | null) => void;
   openFile: (path: string) => void;
@@ -49,7 +51,7 @@ const initialState: ProjectState = {
   dirtyFiles: {},
   terminalLogs: [],
   auditResult: null,
-  pendingDiff: null,
+  pendingDiffs: {},
   buildStatus: 'idle',
   buildOutput: '',
 };
@@ -100,8 +102,22 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setState(prev => ({ ...prev, auditResult: result }));
   };
 
-  const setPendingDiff = (diff: DiffData | null) => {
-    setState(prev => ({ ...prev, pendingDiff: diff }));
+  const addPendingDiff = (diff: DiffData) => {
+    setState(prev => ({
+      ...prev,
+      pendingDiffs: { ...prev.pendingDiffs, [diff.file]: diff },
+    }));
+  };
+
+  const removePendingDiff = (file: string) => {
+    setState(prev => {
+      const { [file]: _, ...remainingDiffs } = prev.pendingDiffs;
+      return { ...prev, pendingDiffs: remainingDiffs };
+    });
+  };
+
+  const clearPendingDiffs = () => {
+    setState(prev => ({ ...prev, pendingDiffs: {} }));
   };
 
   const setBuildStatus = (status: 'idle' | 'building' | 'success' | 'error', output: string = '') => {
@@ -166,7 +182,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     markFileSaved,
     addTerminalLog,
     setAuditResult,
-    setPendingDiff,
+    addPendingDiff,
+    removePendingDiff,
+    clearPendingDiffs,
     setBuildStatus,
     setCurrentFile,
     openFile,

@@ -4,14 +4,14 @@ import React, { useState } from 'react';
 import { useAgentStream } from "@/hooks/useAgentStream";
 import { useProjectContext } from '@/context/ProjectContext';
 import DiffView from '@/components/diff/DiffView';
-import { downloadProject } from '@/lib/api';
+import { downloadProject, applyAllDiffs } from '@/lib/api';
 import { CheckCircle, XCircle, Loader2, Download, FileDiff } from 'lucide-react';
 
 export default function AgentChat() {
   const [input, setInput] = useState("");
-  const [showDiff, setShowDiff] = useState(false);
+  const [reviewingFile, setReviewingFile] = useState<string | null>(null);
   const { startAgent, logs, isStreaming } = useAgentStream();
-  const { state, setPendingDiff, setAuditResult } = useProjectContext();
+  const { state, removePendingDiff, clearPendingDiffs, setAuditResult } = useProjectContext();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,9 +30,9 @@ export default function AgentChat() {
     setAuditResult(null);
   };
 
-  const handleDiffApproved = () => {
-    setPendingDiff(null);
-    setShowDiff(false);
+  const handleDiffApproved = (file: string) => {
+    removePendingDiff(file);
+    setReviewingFile(null);
   };
 
   const handleDownload = async () => {
@@ -48,6 +48,21 @@ export default function AgentChat() {
       document.body.removeChild(a);
     } catch (error) {
       console.error('Download failed:', error);
+    }
+  };
+
+  const handleApplyAll = async (approved: boolean) => {
+    try {
+      const pendingCount = Object.keys(state.pendingDiffs).length;
+      const result = await applyAllDiffs(approved);
+      clearPendingDiffs();
+      const message = approved 
+        ? `✅ Applied ${result.applied} changes` 
+        : `❌ Discarded ${pendingCount} changes`;
+      // Note: logs are managed in useAgentStream, but we can add a visual feedback here
+      console.log(message);
+    } catch (error) {
+      console.error('Failed to apply all:', error);
     }
   };
 
@@ -106,22 +121,47 @@ export default function AgentChat() {
             </div>
           )}
 
-          {/* Diff Prompt */}
-          {state.pendingDiff && !showDiff && (
+          {/* Pending Diffs List */}
+          {Object.keys(state.pendingDiffs).length > 0 && !reviewingFile && (
             <div className="bg-blue-500/10 border border-blue-500/50 rounded-lg p-4 mb-4">
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-3">
                 <FileDiff size={16} className="text-blue-400" />
-                <span className="text-blue-400 font-semibold">Changes Ready for Review</span>
+                <span className="text-blue-400 font-semibold">
+                  Changes Ready for Review ({Object.keys(state.pendingDiffs).length})
+                </span>
               </div>
-              <p className="text-sm text-gray-300 mb-3">
-                Agent has prepared changes to <code className="text-blue-400">{state.pendingDiff.file}</code>
-              </p>
-              <button
-                onClick={() => setShowDiff(true)}
-                className="w-full px-4 py-2 bg-blue-500 hover:bg-blue-400 text-white font-semibold rounded transition-colors"
-              >
-                Review Changes
-              </button>
+              <div className="space-y-2 mb-3">
+                {Object.values(state.pendingDiffs).map((diff) => (
+                  <div
+                    key={diff.file}
+                    className="flex items-center justify-between p-2 bg-gray-800/50 rounded"
+                  >
+                    <code className="text-sm text-blue-400">{diff.file}</code>
+                    <button
+                      onClick={() => setReviewingFile(diff.file)}
+                      className="px-3 py-1 text-xs bg-blue-500 hover:bg-blue-400 text-white rounded transition-colors"
+                    >
+                      Review
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {Object.keys(state.pendingDiffs).length > 1 && (
+                <div className="flex gap-2 pt-2 border-t border-gray-700">
+                  <button
+                    onClick={() => handleApplyAll(true)}
+                    className="flex-1 px-4 py-2 bg-green-500 hover:bg-green-400 text-white font-semibold rounded transition-colors"
+                  >
+                    Approve All
+                  </button>
+                  <button
+                    onClick={() => handleApplyAll(false)}
+                    className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-400 text-white font-semibold rounded transition-colors"
+                  >
+                    Discard All
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -208,11 +248,11 @@ export default function AgentChat() {
       </div>
 
       {/* Diff Modal */}
-      {showDiff && state.pendingDiff && (
+      {reviewingFile && state.pendingDiffs[reviewingFile] && (
         <DiffView
-          diff={state.pendingDiff}
-          onClose={() => setShowDiff(false)}
-          onApproved={handleDiffApproved}
+          diff={state.pendingDiffs[reviewingFile]}
+          onClose={() => setReviewingFile(null)}
+          onApproved={() => handleDiffApproved(reviewingFile)}
         />
       )}
     </>

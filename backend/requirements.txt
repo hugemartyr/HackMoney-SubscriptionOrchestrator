@@ -3,6 +3,7 @@ uvicorn
 langgraph
 langchain
 langchain-anthropic
+langchain-google-genai
 e2b-code-interpreter
 python-multipart
 supabase

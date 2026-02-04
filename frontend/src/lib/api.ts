@@ -92,6 +92,22 @@ export async function approveDiff(file: string, approved: boolean): Promise<void
   }
 }
 
+export async function applyAllDiffs(approved: boolean): Promise<{ ok: boolean; applied: number }> {
+  const response = await fetch(`${API_BASE_URL}/api/yellow-agent/apply`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ approved }),
+  });
+  
+  if (!response.ok) {
+    throw new Error('Failed to apply/reject all diffs');
+  }
+  
+  return response.json();
+}
+
 export async function downloadProject(): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/api/project/download`, {
     method: 'GET',

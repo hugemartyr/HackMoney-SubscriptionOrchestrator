@@ -25,6 +25,7 @@ export default function DiffView({ diff, onClose, onApproved }: DiffViewProps) {
   const handleReject = async () => {
     try {
       await approveDiff(diff.file, false);
+      onApproved(); // Remove from pending list
       onClose();
     } catch (error) {
       console.error('Failed to reject diff:', error);
