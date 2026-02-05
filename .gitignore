@@ -1,34 +1,82 @@
+################################
 # IDE and Editor
+################################
 .vscode/
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo
 *.sw?
 *.sublime-workspace
+*.sublime-project
+
+################################
+# OS Files
+################################
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# Node.js / JavaScript
+################################
+# Node.js / JavaScript / TypeScript
+################################
+# Dependencies
 node_modules/
+/.pnp
+.pnp.js
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Build outputs
 dist/
 dist-ssr/
+build/
+out/
+.next/
+coverage/
+.nyc_output/
+
+# File artifacts
 *.local
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+
+# Lock files
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
 bun.lockb
 
+# Testing
+.turbo/
+.vitest/
+
+################################
 # Python
+################################
+# Cache
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+
+# Distribution / packaging
 build/
 develop-eggs/
 dist/
@@ -47,78 +95,63 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+# Virtual environments
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+.virtualenv
+
+# Testing
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
 .hypothesis/
+.nox/
+*.cover
+*.py,cover
 
-# Environment variables
+# Python environments
+.env
+.env.local
+.env.*.local
+
+# Temporary directories
+tmp/
+temp/
+tmp_agents/
+
+################################
+# Environment Variables
+################################
 .env
 .env.local
 .env.*.local
 .env*.local
+!.env.example
+!.env.sample
 
-# OS
-.DS_Store
-.AppleDouble
-.LSOverride
-*.sublime-workspace
+################################
+# Vercel & Deployment
+################################
+.vercel/
+.vercel
 
-# Build outputs
-dist/
-build/
-out/
-.next/
-
-# Testing
-coverage/
-.nyc_output/
-
-# Lock files (optional - uncomment if you want to commit lock files)
-# yarn.lock
-# package-lock.json
-# pnpm-lock.yaml
-# bun.lockb
-
-# Logs
-logs/
-*.log
-
-# Runtime
-tmp/
-temp/
-*.pid
-*.pid.lock
-
-# IDE specific
-.vscode/settings.json
-.idea/workspace.xml
-.idea/modules.xml
-.idea/inspectionProfiles/
-
-# Generated files
-*.tsbuildinfo
-next-env.d.ts
-.turbo/
-
-# macOS
-.AppleDouble
-.LSOverride
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-
+################################
 # Workspace
+################################
 .idea/
 *.iml
+*.ddev
 
-# Vercel
-.vercel/
+################################
+# Runtime
+################################
+*.pid
+*.pid.lock
+.cache/
+*.cache
