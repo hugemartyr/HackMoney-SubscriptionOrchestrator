@@ -7,7 +7,6 @@ from langgraph.graph import END, StateGraph
 
 from agent.llm import generate_plan, propose_code_changes
 from agent.state import AgentState, Diff
-from agent.tools.yellow_simplepayment_tool import yellow_simplepayment_tool
 from services.sandbox_fs_service import get_file_tree, read_text_file
 
 
@@ -132,19 +131,11 @@ async def plan_node(state: AgentState) -> AgentState:
     return {"plan_notes": plan_notes, "sdk_version": sdk_version}
 
 
-async def simplepayment_tool_node(state: AgentState) -> AgentState:
-    prompt = state.get("prompt", "")
-    tree = state.get("tree", {}) or {}
-    tool_diffs = await yellow_simplepayment_tool(prompt, tree)
-    return {"tool_diffs": tool_diffs}
-
-
 async def propose_changes_node(state: AgentState) -> AgentState:
     prompt = state.get("prompt", "")
     files = state.get("file_contents", {}) or {}
     plan_notes = state.get("plan_notes", "")
     sdk_version = state.get("sdk_version", "latest")
-    tool_diffs = state.get("tool_diffs", []) or []
 
     diffs: list[Diff] = []
 
@@ -184,11 +175,6 @@ async def propose_changes_node(state: AgentState) -> AgentState:
             if not any(d["file"] == pkg_path for d in diffs):
                 diffs.append({"file": pkg_path, "oldCode": old_pkg, "newCode": new_pkg})
 
-    # Ensure tool diffs are included and take precedence
-    tool_files = {d["file"] for d in tool_diffs}
-    diffs = [d for d in diffs if d["file"] not in tool_files]
-    diffs = tool_diffs + diffs
-
     return {"diffs": diffs}
 
 
@@ -202,15 +188,13 @@ workflow = StateGraph(AgentState)
 workflow.add_node("scan", scan_node)
 workflow.add_node("read_files", read_files_node)
 workflow.add_node("plan", plan_node)
-workflow.add_node("simplepayment_tool", simplepayment_tool_node)
 workflow.add_node("propose_changes", propose_changes_node)
 workflow.add_node("validate", validate_node)
 
 workflow.set_entry_point("scan")
 workflow.add_edge("scan", "read_files")
 workflow.add_edge("read_files", "plan")
-workflow.add_edge("plan", "simplepayment_tool")
-workflow.add_edge("simplepayment_tool", "propose_changes")
+workflow.add_edge("plan", "propose_changes")
 workflow.add_edge("propose_changes", "validate")
 workflow.add_edge("validate", END)
 

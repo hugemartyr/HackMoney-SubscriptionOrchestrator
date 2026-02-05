@@ -17,5 +17,4 @@ class AgentState(TypedDict, total=False):
     plan_notes: str
     sdk_version: str
     diffs: List[Diff]
-    tool_diffs: List[Diff]
     errors: List[str]
