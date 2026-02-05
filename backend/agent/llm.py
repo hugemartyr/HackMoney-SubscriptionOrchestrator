@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from config import settings
 from agent.state import Diff
-
+from agent import prompts
 
 def _extract_text_from_content(content) -> str:
     """
@@ -53,7 +54,6 @@ def extract_json_from_response(text: str) -> Optional[dict]:
         pass
 
     # Try fenced ```json ... ``` or ``` ... ```
-    # More lenient regex that handles various markdown code block formats
     patterns = [
         r"```(?:json)?\s*(\{[\s\S]*?\})\s*```",  # Standard markdown
         r"```\s*(\{[\s\S]*?\})\s*```",  # Without json label
@@ -69,7 +69,6 @@ def extract_json_from_response(text: str) -> Optional[dict]:
                 continue
 
     # Try to find JSON object by matching braces more carefully
-    # Find the first { and then find the matching }
     start = s.find("{")
     if start != -1:
         brace_count = 0
@@ -91,8 +90,7 @@ def extract_json_from_response(text: str) -> Optional[dict]:
             except Exception:
                 pass
     
-    # Last resort: try to find JSON by scanning for opening brace and matching closing brace
-    # This handles cases where there might be text before/after the JSON
+    # Last resort: scanning
     for i, char in enumerate(s):
         if char == "{":
             brace_count = 0
@@ -126,7 +124,6 @@ async def generate_plan(prompt: str, files: Dict[str, str]) -> dict:
 
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI
-        from langchain_core.messages import HumanMessage, SystemMessage
     except Exception as e:
         raise RuntimeError(f"Failed to import required LLM libraries: {e}")
 
@@ -138,19 +135,7 @@ async def generate_plan(prompt: str, files: Dict[str, str]) -> dict:
         snippets.append(f"--- {path} ---\n{snippet}\n")
     context = "\n".join(snippets)
 
-    system = (
-        "You are a senior engineer helping integrate Yellow Network SDK into an existing project.\n"
-        "Return ONLY a single JSON object with keys:\n"
-        "- notes_markdown: string (markdown)\n"
-        "- yellow_sdk_version: string (npm semver like \"^1.2.3\" or \"latest\")\n"
-        "No additional keys. No surrounding text."
-    )
-    user = (
-        f"User prompt:\n{prompt}\n\n"
-        "Repository context (snippets):\n"
-        f"{context}\n\n"
-        "Generate the JSON now."
-    )
+    messages = prompts.build_planner_prompt(prompt, context)
 
     # Use single model from config
     llm = ChatGoogleGenerativeAI(
@@ -158,11 +143,10 @@ async def generate_plan(prompt: str, files: Dict[str, str]) -> dict:
         api_key=settings.GOOGLE_API_KEY,
         temperature=0.2,
         max_tokens=(8192*2),
-        # Avoid server-side streaming differences; we just want one JSON blob.
         disable_streaming=True,
     )
 
-    resp = await llm.ainvoke([SystemMessage(content=system), HumanMessage(content=user)])
+    resp = await llm.ainvoke(messages)
     raw_content = getattr(resp, "content", "") or ""
     
     # Extract text from content (handles strings, lists, dicts)
@@ -188,7 +172,7 @@ async def generate_plan(prompt: str, files: Dict[str, str]) -> dict:
 
 
 async def propose_code_changes(
-    prompt: str, files: Dict[str, str], plan_notes: str, sdk_version: str
+    prompt: str, files: Dict[str, str], plan_notes: str, sdk_version: str, rag_context: str
 ) -> List[Diff]:
     """
     Use LLM to propose code changes for integrating Yellow Network SDK.
@@ -199,7 +183,6 @@ async def propose_code_changes(
 
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI
-        from langchain_core.messages import HumanMessage, SystemMessage
     except Exception as e:
         raise RuntimeError(f"Failed to import required LLM libraries: {e}")
 
@@ -221,36 +204,29 @@ async def propose_code_changes(
     
     context = "\n".join(file_contexts)
 
-    system = (
-        "You are a senior engineer helping integrate Yellow Network SDK (@yellow-network/sdk) into an existing project.\n"
-        "Analyze the codebase and propose specific code changes.\n\n"
-        "Return ONLY a single JSON object with this exact structure:\n"
-        "{\n"
-        '  "diffs": [\n'
-        "    {\n"
-        '      "file": "path/to/file.ext",\n'
-        '      "oldCode": "original file content (complete)",\n'
-        '      "newCode": "modified file content (complete)"\n'
-        "    }\n"
-        "  ]\n"
-        "}\n\n"
-        "Rules:\n"
-        "- Include the COMPLETE file content in both oldCode and newCode\n"
-        "- Only propose changes to files that need Yellow SDK integration\n"
-        "- Be precise and maintain existing code style\n"
-        "- Include import statements for @yellow-network/sdk where needed\n"
-        "- Do not create new files, only modify existing ones\n"
-        "- Return empty diffs array if no changes are needed\n"
-        "No additional keys. No surrounding text."
-    )
+    # Load "The Constitution"
+    # Assuming code runs from backend/ or root. Try both.
+    rules_path = Path("docs/yellow_integration_rules.md")
+    if not rules_path.exists():
+        rules_path = Path("../docs/yellow_integration_rules.md")
+    if not rules_path.exists():
+         # Fallback to backend/docs relative to this file
+         rules_path = Path(__file__).parent.parent.parent / "docs" / "yellow_integration_rules.md"
     
-    user = (
-        f"User prompt:\n{prompt}\n\n"
-        f"Plan notes:\n{plan_notes}\n\n"
-        f"Yellow SDK version to use: {sdk_version}\n\n"
-        "Repository files:\n"
-        f"{context}\n\n"
-        "Generate the JSON with proposed code changes now."
+    rules_text = ""
+    if rules_path.exists():
+        rules_text = rules_path.read_text()
+    else:
+        # Graceful fallback if file missing
+        rules_text = "No specific rules provided."
+
+    messages = prompts.build_coder_prompt(
+        user_query=prompt,
+        plan=plan_notes,
+        rules=rules_text,
+        rag_context=rag_context,
+        file_context=context,
+        sdk_version=sdk_version
     )
 
     # Use single model from config
@@ -262,7 +238,7 @@ async def propose_code_changes(
         disable_streaming=True,
     )
 
-    resp = await llm.ainvoke([SystemMessage(content=system), HumanMessage(content=user)])
+    resp = await llm.ainvoke(messages)
     raw_content = getattr(resp, "content", "") or ""
     
     # Extract text from content (handles strings, lists, dicts)
