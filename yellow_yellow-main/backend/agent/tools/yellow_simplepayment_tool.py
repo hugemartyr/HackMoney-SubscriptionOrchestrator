@@ -242,7 +242,7 @@ def _simple_payment_files(frontend_root: str, use_ts: bool) -> Dict[str, str]:
             "      throw new Error(\"Yellow not initialized\");\n"
             "    }\n"
             "    const sessionMessage = await createAppSessionMessage(this.messageSigner, [\n"
-            "      {\n"
+            "      {\n"x 
             "        definition: {\n"
             "          protocol: \"subscription-v1\",\n"
             "          participants: [this.userAddress, merchantAddress],\n"
@@ -322,9 +322,9 @@ def _simple_payment_files(frontend_root: str, use_ts: bool) -> Dict[str, str]:
         )
 
     return {
-        simple_payment: simple_payment_content,
-        simple_payment_app: simple_payment_app_content,
-        use_yellow: use_yellow_content,
+        "simple_payment": simple_payment_content,
+        "simple_payment_app": simple_payment_app_content,
+        "use_yellow": use_yellow_content,
     }
 
 

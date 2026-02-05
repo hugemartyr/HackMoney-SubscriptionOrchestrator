@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import re
 from typing import Dict, List, Optional
@@ -229,13 +230,15 @@ async def propose_code_changes(
         '  "diffs": [\n'
         "    {\n"
         '      "file": "path/to/file.ext",\n'
-        '      "oldCode": "original file content (complete)",\n'
-        '      "newCode": "modified file content (complete)"\n'
+        '      "oldCode_b64": "base64-encoded original file content",\n'
+        '      "newCode_b64": "base64-encoded modified file content",\n'
+        '      "encoding": "base64"\n'
         "    }\n"
         "  ]\n"
         "}\n\n"
         "Rules:\n"
-        "- Include the COMPLETE file content in both oldCode and newCode\n"
+        "- Include the COMPLETE file content in both oldCode_b64 and newCode_b64\n"
+        "- Base64-encode file contents to guarantee valid JSON\n"
         "- Only propose changes to files that need Yellow SDK integration\n"
         "- Be precise and maintain existing code style\n"
         "- Include import statements for @yellow-network/sdk where needed\n"
@@ -270,6 +273,17 @@ async def propose_code_changes(
     
     obj = extract_json_from_response(content)
     if not obj:
+        # Fallback: try to salvage common \"{ \"diffs\": [ ... ] }\" responses
+        try:
+            start = content.find("{")
+            end = content.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                candidate = content[start : end + 1]
+                obj = json.loads(candidate)
+        except Exception:
+            obj = None
+
+    if not obj:
         # Include a snippet of the actual response for debugging
         content_snippet = content[:500] if len(content) > 500 else content
         error_msg = (
@@ -291,6 +305,16 @@ async def propose_code_changes(
         file_path = d.get("file")
         old_code = d.get("oldCode", "")
         new_code = d.get("newCode", "")
+        encoding = d.get("encoding")
+        old_b64 = d.get("oldCode_b64")
+        new_b64 = d.get("newCode_b64")
+
+        if encoding == "base64" and isinstance(old_b64, str) and isinstance(new_b64, str):
+            try:
+                old_code = base64.b64decode(old_b64).decode("utf-8")
+                new_code = base64.b64decode(new_b64).decode("utf-8")
+            except Exception:
+                raise RuntimeError("Failed to decode base64 diff content from LLM response.")
         
         if not isinstance(file_path, str) or not file_path:
             continue
