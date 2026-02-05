@@ -12,7 +12,7 @@ sys.path.append(str(backend_root))
 from utils.dotenv import load_dotenv
 load_dotenv(backend_root / ".env")
 
-from services.doc_enrichment import DocumentEnricher
+from doc_enrichment import DocumentEnricher
 from langchain_core.documents import Document
 
 async def main():

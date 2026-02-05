@@ -11,7 +11,7 @@ sys.path.append(str(backend_root))
 from utils.dotenv import load_dotenv
 load_dotenv(backend_root / ".env")
 
-from services.vector_store import YellowVectorStore
+from agent.tools.vector_store import YellowVectorStore
 
 def main():
     print("Testing vector store with enriched data...")

@@ -15,8 +15,8 @@ sys.path.append(str(backend_root))
 from utils.dotenv import load_dotenv
 load_dotenv(backend_root / ".env")
 
-from services.vector_store import YellowVectorStore
-from services.doc_enrichment import DocumentEnricher
+from agent.tools.vector_store import YellowVectorStore
+from doc_enrichment import DocumentEnricher
 from langchain_core.documents import Document
 
 DOCS_JSON_PATH = backend_root.parent / "docs" / "yellow_docs_vector_data.json"

@@ -270,7 +270,7 @@ batch_size = 10
 ### Basic Search
 
 ```python
-from services.vector_store import YellowVectorStore
+from agent.tools.vector_store import YellowVectorStore
 
 vector_store = YellowVectorStore()
 results = vector_store.search("create payment session", k=5)
@@ -280,7 +280,7 @@ print(results)
 ### Direct Vector Store Access
 
 ```python
-from services.vector_store import YellowVectorStore
+from agent.tools.vector_store import YellowVectorStore
 
 vector_store = YellowVectorStore()
 # Access underlying ChromaDB

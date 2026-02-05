@@ -12,8 +12,14 @@ def load_dotenv(dotenv_path: str | os.PathLike[str] | None = None) -> None:
     - Does not override existing environment variables.
     """
     if dotenv_path is None:
-        dotenv_path = Path(__file__).resolve().parents[1] / ".env"  # backend/.env
-    p = Path(dotenv_path)
+        # Try backend/.env first
+        p = Path(__file__).resolve().parents[1] / ".env"
+        if not p.exists():
+            # Try project root .env
+            p = Path(__file__).resolve().parents[2] / ".env"
+    else:
+        p = Path(dotenv_path)
+
     if not p.exists() or not p.is_file():
         return
 
@@ -37,4 +43,3 @@ def load_dotenv(dotenv_path: str | os.PathLike[str] | None = None) -> None:
         if key in os.environ:
             continue
         os.environ[key] = value
-
