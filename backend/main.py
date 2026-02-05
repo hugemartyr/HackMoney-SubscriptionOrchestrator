@@ -3,10 +3,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from utils.dotenv import load_dotenv
+
+# Load environment variables BEFORE importing config
+load_dotenv()
+
 from config import settings
 from routes import router as api_router
-
-load_dotenv()
 
 app = FastAPI()
 

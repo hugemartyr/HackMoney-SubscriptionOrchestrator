@@ -78,13 +78,13 @@ export async function deleteFile(path: string): Promise<void> {
   }
 }
 
-export async function approveDiff(file: string, approved: boolean): Promise<void> {
+export async function approveDiff(file: string, approved: boolean, runId?: string | null): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/diff/approve`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ file, approved }),
+    body: JSON.stringify({ runId: runId || null, file, approved }),
   });
   
   if (!response.ok) {
@@ -92,13 +92,13 @@ export async function approveDiff(file: string, approved: boolean): Promise<void
   }
 }
 
-export async function applyAllDiffs(approved: boolean): Promise<{ ok: boolean; applied: number }> {
+export async function applyAllDiffs(approved: boolean, runId?: string | null): Promise<{ ok: boolean; applied: number }> {
   const response = await fetch(`${API_BASE_URL}/api/yellow-agent/apply`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ approved }),
+    body: JSON.stringify({ runId: runId || null, approved }),
   });
   
   if (!response.ok) {

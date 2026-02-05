@@ -15,38 +15,61 @@ class PendingDiff:
 
 
 _LOCK = asyncio.Lock()
-_PENDING: Dict[str, PendingDiff] = {}
+_PENDING_BY_RUN: Dict[str, Dict[str, PendingDiff]] = {}
+_LAST_RUN_ID: Optional[str] = None
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
+def _resolve_run_id(runId: Optional[str]) -> Optional[str]:
+    return runId or _LAST_RUN_ID
 
-async def set_pending_diff(file: str, oldCode: str, newCode: str) -> PendingDiff:
+
+async def set_pending_diff(runId: str, file: str, oldCode: str, newCode: str) -> PendingDiff:
     """
-    Store/replace the pending diff for a given file (single-session, in-memory).
+    Store/replace the pending diff for a given file under a runId (single-session, in-memory).
     """
     diff = PendingDiff(file=file, oldCode=oldCode, newCode=newCode, created_at=_now())
     async with _LOCK:
-        _PENDING[file] = diff
+        global _LAST_RUN_ID
+        _LAST_RUN_ID = runId
+        per_run = _PENDING_BY_RUN.setdefault(runId, {})
+        per_run[file] = diff
     return diff
 
 
-async def get_pending_diff(file: str) -> Optional[PendingDiff]:
+async def get_pending_diff(file: str, runId: Optional[str] = None) -> Optional[PendingDiff]:
+    rid = _resolve_run_id(runId)
+    if not rid:
+        return None
     async with _LOCK:
-        return _PENDING.get(file)
+        return (_PENDING_BY_RUN.get(rid) or {}).get(file)
 
 
-async def pop_pending_diff(file: str) -> Optional[PendingDiff]:
+async def pop_pending_diff(file: str, runId: Optional[str] = None) -> Optional[PendingDiff]:
+    rid = _resolve_run_id(runId)
+    if not rid:
+        return None
     async with _LOCK:
-        return _PENDING.pop(file, None)
+        per_run = _PENDING_BY_RUN.get(rid)
+        if not per_run:
+            return None
+        return per_run.pop(file, None)
 
 
-async def list_pending_diffs() -> List[PendingDiff]:
+async def list_pending_diffs(runId: Optional[str] = None) -> List[PendingDiff]:
+    rid = _resolve_run_id(runId)
+    if not rid:
+        return []
     async with _LOCK:
-        return list(_PENDING.values())
+        return list((_PENDING_BY_RUN.get(rid) or {}).values())
 
 
-async def clear_pending_diffs() -> None:
+async def clear_pending_diffs(runId: Optional[str] = None) -> None:
+    rid = _resolve_run_id(runId)
     async with _LOCK:
-        _PENDING.clear()
+        if rid:
+            _PENDING_BY_RUN.pop(rid, None)
+        else:
+            _PENDING_BY_RUN.clear()

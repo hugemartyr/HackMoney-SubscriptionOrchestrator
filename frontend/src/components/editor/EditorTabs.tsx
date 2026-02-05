@@ -103,7 +103,7 @@ export default function EditorTabs() {
 
                       // Clear backend pending diff (so apply-all won't re-apply stale diffs)
                       try {
-                        await approveDiff(originalPath, false);
+                        await approveDiff(originalPath, false, state.activeRunId);
                       } catch {
                         // ignore
                       }
@@ -135,7 +135,7 @@ export default function EditorTabs() {
                     e.stopPropagation();
                     const originalPath = originalPathFromDiffTab(path);
                     try {
-                      await approveDiff(originalPath, false);
+                      await approveDiff(originalPath, false, state.activeRunId);
                     } catch {
                       // ignore
                     }

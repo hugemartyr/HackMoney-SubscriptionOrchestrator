@@ -1,28 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
-import re
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional
 
 from langgraph.graph import END, StateGraph
 
+from agent.llm import generate_plan, propose_code_changes
+from agent.state import AgentState, Diff
 from services.sandbox_fs_service import get_file_tree, read_text_file
-
-
-class Diff(TypedDict):
-    file: str
-    oldCode: str
-    newCode: str
-
-
-class AgentState(TypedDict, total=False):
-    prompt: str
-    tree: Dict[str, Any]
-    files_to_read: List[str]
-    file_contents: Dict[str, str]
-    diffs: List[Diff]
-    errors: List[str]
 
 
 def _safe_file_list_from_tree(tree: Dict[str, Any], limit: int = 10) -> list[str]:
@@ -135,158 +120,46 @@ def _maybe_set_yellow_sdk_version_in_package_json(old: str, version: str) -> Opt
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
-def _extract_first_json_object(text: str) -> Optional[dict]:
-    """
-    Best-effort: extract the first {...} JSON object from an LLM response.
-    """
-    if not text:
-        return None
-    s = text.strip()
-    try:
-        obj = json.loads(s)
-        return obj if isinstance(obj, dict) else None
-    except Exception:
-        pass
-
-    # Try fenced ```json ... ```
-    m = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", s, flags=re.IGNORECASE)
-    if m:
-        try:
-            obj = json.loads(m.group(1))
-            return obj if isinstance(obj, dict) else None
-        except Exception:
-            return None
-
-    # Try substring from first { to last }
-    start = s.find("{")
-    end = s.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        try:
-            obj = json.loads(s[start : end + 1])
-            return obj if isinstance(obj, dict) else None
-        except Exception:
-            return None
-    return None
-
-
-async def _llm_generate_notes_and_version(prompt: str, files: Dict[str, str]) -> Optional[dict]:
-    """
-    If GOOGLE_API_KEY is set and langchain-google-genai is installed, ask Gemini
-    for a short notes markdown + recommended @yellow-network/sdk version.
-
-    Returns dict like:
-      {\"notes_markdown\": \"...\", \"yellow_sdk_version\": \"^x.y.z\"}
-    """
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        return None
-
-    try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        from langchain_core.messages import HumanMessage, SystemMessage
-    except Exception:
-        return None
-
-    # Keep context small to avoid huge prompts; just provide a snippet of a few files.
-    snippets: list[str] = []
-    for path in sorted(files.keys())[:10]:
-        content = files.get(path, "")
-        snippet = content[:1200]
-        snippets.append(f"--- {path} ---\n{snippet}\n")
-    context = "\n".join(snippets)
-
-    system = (
-        "You are a senior engineer helping integrate Yellow Network SDK into an existing project.\n"
-        "Return ONLY a single JSON object with keys:\n"
-        "- notes_markdown: string (markdown)\n"
-        "- yellow_sdk_version: string (npm semver like \"^1.2.3\" or \"latest\")\n"
-        "No additional keys. No surrounding text."
-    )
-    user = (
-        f"User prompt:\n{prompt}\n\n"
-        "Repository context (snippets):\n"
-        f"{context}\n\n"
-        "Generate the JSON now."
-    )
-
-    # Model selection:
-    # - GOOGLE_MODEL can be a single model name
-    # - GOOGLE_MODELS can be a comma-separated fallback list
-    models_env = (os.getenv("GOOGLE_MODELS") or "").strip()
-    if models_env:
-        model_candidates = [m.strip() for m in models_env.split(",") if m.strip()]
-    else:
-        model_candidates = [os.getenv("GOOGLE_MODEL", "").strip()]
-        model_candidates = [m for m in model_candidates if m]
-
-    # Reasonable defaults (varies by account / API version support).
-    if not model_candidates:
-        model_candidates = ["gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-1.5-flash"]
-
-    for model in model_candidates:
-        try:
-            llm = ChatGoogleGenerativeAI(
-                model=model,
-                api_key=api_key,
-                temperature=0.2,
-                max_tokens=1024,
-                # Avoid server-side streaming differences; we just want one JSON blob.
-                disable_streaming=True,
-            )
-
-            resp = await llm.ainvoke([SystemMessage(content=system), HumanMessage(content=user)])
-            content = getattr(resp, "content", "") or ""
-            obj = _extract_first_json_object(content)
-            if not obj:
-                continue
-
-            notes = obj.get("notes_markdown")
-            version = obj.get("yellow_sdk_version")
-            if not isinstance(notes, str) or not isinstance(version, str):
-                continue
-            return {"notes_markdown": notes, "yellow_sdk_version": version}
-        except Exception:
-            # Any model/API failure should not break the agent stream.
-            continue
-
-    return None
-
-
-async def plan_and_diff_node(state: AgentState) -> AgentState:
+async def plan_node(state: AgentState) -> AgentState:
     prompt = state.get("prompt", "")
     files = state.get("file_contents", {}) or {}
 
+    llm_out = await generate_plan(prompt, files)
+    plan_notes = llm_out["notes_markdown"].rstrip() + "\n"
+    sdk_version = llm_out["yellow_sdk_version"].strip() or "latest"
+
+    return {"plan_notes": plan_notes, "sdk_version": sdk_version}
+
+
+async def propose_changes_node(state: AgentState) -> AgentState:
+    prompt = state.get("prompt", "")
+    files = state.get("file_contents", {}) or {}
+    plan_notes = state.get("plan_notes", "")
+    sdk_version = state.get("sdk_version", "latest")
+
     diffs: list[Diff] = []
 
-    # Prefer LLM-generated notes + version if available; fallback to deterministic.
+    # Use LLM to propose code changes
+    llm_diffs = await propose_code_changes(prompt, files, plan_notes, sdk_version)
+    diffs.extend(llm_diffs)
+
+    # Notes file diff (always add this)
     notes_file = "YELLOW_AGENT_NOTES.md"
     old_notes = files.get(notes_file, "")
-    llm_out = await _llm_generate_notes_and_version(prompt, files)
-    if llm_out is not None:
-        new_notes = llm_out["notes_markdown"].rstrip() + "\n"
-        sdk_version = llm_out["yellow_sdk_version"].strip() or "latest"
-    else:
-        new_notes = (
-            "# Yellow Agent Notes\n\n"
-            f"## Prompt\n\n{prompt}\n\n"
-            "## Next steps\n\n"
-            "- Audit the project entrypoints and payment/trading flows\n"
-            "- Add Yellow SDK integration points\n"
-            "- Generate per-file diffs for review\n"
-        )
-        sdk_version = "latest"
-
+    new_notes = plan_notes
     if new_notes != old_notes:
-        diffs.append({"file": notes_file, "oldCode": old_notes, "newCode": new_notes})
+        # Only add if LLM didn't already propose it
+        if not any(d["file"] == notes_file for d in diffs):
+            diffs.append({"file": notes_file, "oldCode": old_notes, "newCode": new_notes})
 
-    # If we have a package.json, propose adding the SDK dependency.
+    # If we have a package.json, ensure SDK dependency is added/updated
+    # (LLM might have already done this, but we ensure it's correct)
     pkg_path: Optional[str] = None
     for p in ["package.json", "frontend/package.json", "backend/package.json"]:
         if p in files:
             pkg_path = p
             break
     if pkg_path is None:
-        # fallback: any path that ends with package.json
         for p in files.keys():
             if p.endswith("package.json"):
                 pkg_path = p
@@ -298,19 +171,31 @@ async def plan_and_diff_node(state: AgentState) -> AgentState:
         if new_pkg is None:
             new_pkg = _maybe_add_yellow_sdk_to_package_json(old_pkg)
         if new_pkg is not None and new_pkg != old_pkg:
-            diffs.append({"file": pkg_path, "oldCode": old_pkg, "newCode": new_pkg})
+            # Only add if LLM didn't already propose it
+            if not any(d["file"] == pkg_path for d in diffs):
+                diffs.append({"file": pkg_path, "oldCode": old_pkg, "newCode": new_pkg})
 
     return {"diffs": diffs}
+
+
+async def validate_node(state: AgentState) -> AgentState:
+    # Placeholder for future: run lint/build/test in sandbox and stream output.
+    # Return state unchanged to ensure proper graph completion
+    return state
 
 
 workflow = StateGraph(AgentState)
 workflow.add_node("scan", scan_node)
 workflow.add_node("read_files", read_files_node)
-workflow.add_node("plan_and_diff", plan_and_diff_node)
+workflow.add_node("plan", plan_node)
+workflow.add_node("propose_changes", propose_changes_node)
+workflow.add_node("validate", validate_node)
 
 workflow.set_entry_point("scan")
 workflow.add_edge("scan", "read_files")
-workflow.add_edge("read_files", "plan_and_diff")
-workflow.add_edge("plan_and_diff", END)
+workflow.add_edge("read_files", "plan")
+workflow.add_edge("plan", "propose_changes")
+workflow.add_edge("propose_changes", "validate")
+workflow.add_edge("validate", END)
 
 app_graph = workflow.compile()

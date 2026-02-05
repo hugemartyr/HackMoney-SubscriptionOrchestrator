@@ -56,7 +56,7 @@ export default function AgentChat() {
       }
 
       if (!approved) {
-        await applyAllDiffs(false);
+        await applyAllDiffs(false, state.activeRunId);
         clearPendingDiffs();
         return;
       }
@@ -71,7 +71,7 @@ export default function AgentChat() {
       }
 
       // Clear backend pending diffs (we applied ourselves).
-      const result = await applyAllDiffs(false);
+      const result = await applyAllDiffs(false, state.activeRunId);
       clearPendingDiffs();
 
       // Refresh tree to reflect new/updated files.

@@ -3,6 +3,7 @@ import subprocess
 import io
 import json
 import os
+import uuid
 import zipfile
 
 from fastapi import APIRouter, HTTPException, Query
@@ -71,7 +72,8 @@ async def yellow_agent_stream(req: AgentPromptRequest):
         # Ensure sandbox exists early (gives a clean HTTP error before streaming).
         require_root()
 
-        async for event in run_agent(req.prompt):
+        run_id = uuid.uuid4().hex
+        async for event in run_agent(run_id, req.prompt):
             payload = json.dumps(event, ensure_ascii=False)
             yield f"data: {payload}\n\n"
 
@@ -89,7 +91,7 @@ async def approve_diff(req: DiffApproveRequest):
     Approve/reject a pending diff for a specific file.
     If approved, writes newCode into the sandbox.
     """
-    diff = await pop_pending_diff(req.file)
+    diff = await pop_pending_diff(req.file, runId=req.runId)
     if diff is None:
         raise HTTPException(status_code=404, detail="No pending diff for file")
 
@@ -108,15 +110,15 @@ async def apply_all(req: ApplyAllRequest):
     - approved=false: discard all pending diffs
     """
     if not req.approved:
-        await clear_pending_diffs()
+        await clear_pending_diffs(runId=req.runId)
         return {"ok": True, "applied": 0}
 
-    diffs = await list_pending_diffs()
+    diffs = await list_pending_diffs(runId=req.runId)
     applied = 0
     for d in diffs:
         await write_text_file(d.file, d.newCode)
         applied += 1
-    await clear_pending_diffs()
+    await clear_pending_diffs(runId=req.runId)
     return {"ok": True, "applied": applied}
 
 

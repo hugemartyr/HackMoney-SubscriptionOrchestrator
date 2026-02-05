@@ -18,6 +18,7 @@ export function useAgentStream() {
     state,
     setBuildStatus,
     openFile,
+    setActiveRunId,
   } = useProjectContext();
 
   const startAgent = async (prompt: string) => {
@@ -84,13 +85,34 @@ export function useAgentStream() {
   };
 
   const handleEvent = (event: SSEEvent) => {
+    // Run scoping: only process events for the active run.
+    if (event.type === 'run_started') {
+      setActiveRunId(event.runId);
+    } else if ('runId' in event && typeof (event as any).runId === 'string') {
+      const runId = (event as any).runId as string;
+      if (state.activeRunId && runId !== state.activeRunId) return;
+    }
+
     switch (event.type) {
+      case 'run_started':
+        setLogs(prev => [...prev, `▶️ Run started (${event.runId})`]);
+        break;
+
+      case 'run_finished':
+        setLogs(prev => [...prev, `⏹️ Run finished (${event.runId})`]);
+        setActiveRunId(null);
+        break;
+
       case 'thought':
         setLogs(prev => [...prev, `🤖 ${event.content}`]);
         break;
 
-      case 'tool':
+      case 'tool_start':
         setLogs(prev => [...prev, `🛠️ Running: ${event.name}...`]);
+        break;
+
+      case 'tool_end':
+        // Keep logs cleaner; optional to log completion.
         break;
 
       case 'file_tree':
@@ -125,6 +147,19 @@ export function useAgentStream() {
         openFile(diffTabPath);
         const pendingCount = Object.keys(state.pendingDiffs).length + 1;
         setLogs(prev => [...prev, `📋 Diff ready for: ${event.file} (${pendingCount} pending)`]);
+        break;
+
+      case 'proposed_file': {
+        // Preferred event for editor proposals
+        const diffTabPath = `__diff__/${event.path}`;
+        updateFileContent(diffTabPath, event.content);
+        openFile(diffTabPath);
+        setLogs(prev => [...prev, `📋 Proposed file ready: ${event.path}`]);
+        break;
+      }
+
+      case 'awaiting_user_review':
+        setLogs(prev => [...prev, `🧾 Awaiting review (${event.files.length} files)`]);
         break;
 
       case 'build':

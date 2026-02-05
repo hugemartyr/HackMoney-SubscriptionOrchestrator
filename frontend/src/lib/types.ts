@@ -1,45 +1,83 @@
 // SSE Event Types
+export interface RunStartedEvent {
+  type: 'run_started';
+  runId: string;
+  prompt: string;
+}
+
+export interface RunFinishedEvent {
+  type: 'run_finished';
+  runId: string;
+}
+
 export interface ThoughtEvent {
   type: 'thought';
+  runId?: string;
   content: string;
 }
 
-export interface ToolEvent {
-  type: 'tool';
+export interface ToolStartEvent {
+  type: 'tool_start';
+  runId: string;
   name: string;
-  status: string;
+}
+
+export interface ToolEndEvent {
+  type: 'tool_end';
+  runId: string;
+  name: string;
+  status: 'success' | 'error';
 }
 
 export interface FileTreeEvent {
   type: 'file_tree';
+  runId?: string;
   tree: FileSystemNode;
 }
 
 export interface FileContentEvent {
   type: 'file_content';
+  runId?: string;
   path: string;
   content: string;
 }
 
 export interface TerminalEvent {
   type: 'terminal';
+  runId?: string;
   line: string;
 }
 
 export interface AuditEvent {
   type: 'audit';
+  runId?: string;
   analysis: AuditResult;
 }
 
 export interface DiffEvent {
   type: 'diff';
+  runId?: string;
   file: string;
   oldCode: string;
   newCode: string;
 }
 
+export interface ProposedFileEvent {
+  type: 'proposed_file';
+  runId: string;
+  path: string;
+  content: string;
+}
+
+export interface AwaitingUserReviewEvent {
+  type: 'awaiting_user_review';
+  runId: string;
+  files: string[];
+}
+
 export interface BuildEvent {
   type: 'build';
+  runId?: string;
   status: 'start' | 'output' | 'success' | 'error';
   data?: string;
 }
@@ -50,13 +88,18 @@ export interface CodeUpdateEvent {
 }
 
 export type SSEEvent = 
+  | RunStartedEvent
+  | RunFinishedEvent
   | ThoughtEvent 
-  | ToolEvent 
+  | ToolStartEvent
+  | ToolEndEvent
   | FileTreeEvent 
   | FileContentEvent 
   | TerminalEvent 
   | AuditEvent 
   | DiffEvent 
+  | ProposedFileEvent
+  | AwaitingUserReviewEvent
   | BuildEvent 
   | CodeUpdateEvent;
 

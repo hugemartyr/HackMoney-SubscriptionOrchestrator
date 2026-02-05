@@ -6,6 +6,7 @@ import { FileSystemNode, AuditResult, DiffData } from '@/lib/types';
 interface ProjectState {
   isUploaded: boolean;
   projectName: string | null;
+  activeRunId: string | null;
   fileTree: FileSystemNode | null;
   openFiles: string[];
   currentFile: string | null;
@@ -22,6 +23,7 @@ interface ProjectState {
 interface ProjectContextType {
   state: ProjectState;
   setState: React.Dispatch<React.SetStateAction<ProjectState>>;
+  setActiveRunId: (runId: string | null) => void;
   updateFileTree: (tree: FileSystemNode) => void;
   updateFileContent: (path: string, content: string) => void;
   updateDraftContent: (path: string, content: string) => void;
@@ -43,6 +45,7 @@ const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 const initialState: ProjectState = {
   isUploaded: false,
   projectName: null,
+  activeRunId: null,
   fileTree: null,
   openFiles: [],
   currentFile: null,
@@ -58,6 +61,10 @@ const initialState: ProjectState = {
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ProjectState>(initialState);
+
+  const setActiveRunId = (runId: string | null) => {
+    setState(prev => ({ ...prev, activeRunId: runId }));
+  };
 
   const updateFileTree = (tree: FileSystemNode) => {
     setState(prev => ({ ...prev, fileTree: tree }));
@@ -176,6 +183,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const value: ProjectContextType = {
     state,
     setState,
+    setActiveRunId,
     updateFileTree,
     updateFileContent,
     updateDraftContent,

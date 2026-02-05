@@ -13,6 +13,10 @@ class Settings:
     # CORS
     CORS_ALLOW_ORIGINS: list[str] = _os.getenv("CORS_ALLOW_ORIGINS", "*").split(",")
 
+    # Google Gemini model configuration
+    GOOGLE_API_KEY: str | None = _os.getenv("GOOGLE_API_KEY")
+    GOOGLE_MODEL: str = _os.getenv("GOOGLE_MODEL", "gemini-3-flash-preview")
+
 
 settings = Settings()
 

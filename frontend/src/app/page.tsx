@@ -31,7 +31,7 @@ export default function WorkspacePage() {
         {/* Top: Editor and Chat */}
         <div className="flex-1 flex flex-col md:flex-row min-h-0">
           {/* Left: Code Editor */}
-          <div className="flex-1 border-r border-gray-800 min-h-0">
+          <div className="w-80 flex-1 border-r border-gray-800 min-h-0">
             <YellowEditor />
           </div>
 
