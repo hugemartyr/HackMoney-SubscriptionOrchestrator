@@ -1,5 +1,5 @@
 Tools available:
 1) yellow_simple_payment: Simulates a Yellow payment for demo purposes.
-2) create_kb_agent: Simulates creation of an agent tied to a knowledge base.
+2) create_kb_agent: Creates a runnable agent file initialized with a knowledge base prompt.
 
 When a tool intent is provided, call the tool and include the result in the response.
