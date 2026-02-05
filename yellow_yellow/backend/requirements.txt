@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+langgraph
+langchain
+langchain-anthropic
+langchain-google-genai
+langsmith
+e2b-code-interpreter
+python-multipart
+supabase
