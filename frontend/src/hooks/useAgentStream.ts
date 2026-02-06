@@ -19,6 +19,8 @@ export function useAgentStream() {
     setBuildStatus,
     openFile,
     setActiveRunId,
+    setApprovalPending,
+    setApprovalFiles,
   } = useProjectContext();
 
   const startAgent = async (prompt: string) => {
@@ -160,6 +162,8 @@ export function useAgentStream() {
 
       case 'awaiting_user_review':
         setLogs(prev => [...prev, `🧾 Awaiting review (${event.files.length} files)`]);
+        setApprovalPending(true);
+        setApprovalFiles(event.files);
         break;
 
       case 'build':

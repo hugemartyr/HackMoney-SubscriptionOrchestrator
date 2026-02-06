@@ -18,6 +18,8 @@ interface ProjectState {
   pendingDiffs: Record<string, DiffData>;
   buildStatus: 'idle' | 'building' | 'success' | 'error';
   buildOutput: string;
+  approvalPending: boolean;
+  approvalFiles: string[];
 }
 
 interface ProjectContextType {
@@ -38,6 +40,8 @@ interface ProjectContextType {
   openFile: (path: string) => void;
   closeFile: (path: string) => void;
   markProjectUploaded: (name: string) => void;
+  setApprovalPending: (pending: boolean) => void;
+  setApprovalFiles: (files: string[]) => void;
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
@@ -57,6 +61,8 @@ const initialState: ProjectState = {
   pendingDiffs: {},
   buildStatus: 'idle',
   buildOutput: '',
+  approvalPending: false,
+  approvalFiles: [],
 };
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
@@ -180,6 +186,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setState(prev => ({ ...prev, isUploaded: true, projectName: name }));
   };
 
+  const setApprovalPending = (pending: boolean) => {
+    setState(prev => ({ ...prev, approvalPending: pending }));
+  };
+
+  const setApprovalFiles = (files: string[]) => {
+    setState(prev => ({ ...prev, approvalFiles: files }));
+  };
+
   const value: ProjectContextType = {
     state,
     setState,
@@ -198,6 +212,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     openFile,
     closeFile,
     markProjectUploaded,
+    setApprovalPending,
+    setApprovalFiles,
   };
 
   return (

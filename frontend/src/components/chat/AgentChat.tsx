@@ -3,13 +3,13 @@
 import React, { useState } from 'react';
 import { useAgentStream } from "@/hooks/useAgentStream";
 import { useProjectContext } from '@/context/ProjectContext';
-import { downloadProject, applyAllDiffs, getFileTree, putFileContent } from '@/lib/api';
-import { CheckCircle, XCircle, Loader2, Download, FileDiff } from 'lucide-react';
+import { downloadProject, applyAllDiffs, getFileTree, putFileContent, approveDiff } from '@/lib/api';
+import { CheckCircle, XCircle, Loader2, Download, FileDiff, AlertCircle } from 'lucide-react';
 
 export default function AgentChat() {
   const [input, setInput] = useState("");
   const { startAgent, logs, isStreaming } = useAgentStream();
-  const { state, clearPendingDiffs, setAuditResult, closeFile, updateFileTree } = useProjectContext();
+  const { state, clearPendingDiffs, setAuditResult, closeFile, updateFileTree, setApprovalPending, setApprovalFiles } = useProjectContext();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,6 +42,34 @@ export default function AgentChat() {
       document.body.removeChild(a);
     } catch (error) {
       console.error('Download failed:', error);
+    }
+  };
+
+  const handleApproveAll = async () => {
+    try {
+      // Approve all files in approvalFiles list
+      for (const file of state.approvalFiles) {
+        await approveDiff(file, true, state.activeRunId);
+      }
+      // Clear approval state
+      setApprovalPending(false);
+      setApprovalFiles([]);
+    } catch (error) {
+      console.error('Failed to approve files:', error);
+    }
+  };
+
+  const handleRejectAll = async () => {
+    try {
+      // Reject all files in approvalFiles list
+      for (const file of state.approvalFiles) {
+        await approveDiff(file, false, state.activeRunId);
+      }
+      // Clear approval state
+      setApprovalPending(false);
+      setApprovalFiles([]);
+    } catch (error) {
+      console.error('Failed to reject files:', error);
     }
   };
 
@@ -93,7 +121,7 @@ export default function AgentChat() {
       <div className="flex flex-col h-full">
         {/* Logs / Chat History */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {logs.length === 0 && !state.auditResult && (
+          {logs.length === 0 && !state.auditResult && !state.approvalPending && (
             <div className="text-gray-500 text-center mt-10">
               <h3 className="text-lg font-bold text-yellow-500">Yellow Agent</h3>
               <p className="text-sm">Ready to integrate State Channels.</p>
@@ -138,6 +166,40 @@ export default function AgentChat() {
                   className="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded transition-colors"
                 >
                   Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Approval Required Card */}
+          {state.approvalPending && state.approvalFiles.length > 0 && (
+            <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-4 mb-4">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertCircle size={16} className="text-yellow-400" />
+                <span className="text-yellow-400 font-semibold">
+                  Approval Required ({state.approvalFiles.length} files)
+                </span>
+              </div>
+              <p className="text-sm text-gray-300 mb-3">
+                The agent is waiting for your approval to proceed with these changes:
+              </p>
+              <ul className="list-disc list-inside text-sm text-gray-400 mb-3 space-y-1">
+                {state.approvalFiles.map((file, idx) => (
+                  <li key={idx}>{file}</li>
+                ))}
+              </ul>
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={handleApproveAll}
+                  className="flex-1 px-4 py-2 bg-green-500 hover:bg-green-400 text-white font-semibold rounded transition-colors"
+                >
+                  Approve & Continue
+                </button>
+                <button
+                  onClick={handleRejectAll}
+                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-400 text-white font-semibold rounded transition-colors"
+                >
+                  Reject & Stop
                 </button>
               </div>
             </div>
