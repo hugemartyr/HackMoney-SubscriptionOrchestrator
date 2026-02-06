@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional, Tuple
 
 from pydantic import BaseModel
 from langchain_core.callbacks import AsyncCallbackHandler
+from agent.tools.yellow.diff_utils import write_file_with_diff
 
 
 class YellowVersionedIntegrationInput(BaseModel):
@@ -20,6 +21,7 @@ class YellowVersionedIntegrationOutput(BaseModel):
     action: Optional[str]  # installed, already_up_to_date, upgraded
     version: str
     files_modified: List[str]
+    diffs: List[Dict[str, Any]] = []
     message: str
     error: Optional[str] = None
 
@@ -115,12 +117,13 @@ class YellowVersionedIntegrationTool:
             # Check if layer already exists
             if not yellow_dir.exists():
                 await self.emit_event("thought", content="Creating new Yellow integration layer...")
-                files = self._inject_full_layer(yellow_dir)
+                files, diffs = self._inject_full_layer(yellow_dir)
                 return YellowVersionedIntegrationOutput(
                     success=True,
                     action="installed",
                     version=self.INTEGRATION_VERSION,
                     files_modified=files,
+                    diffs=diffs,
                     message="Yellow integration layer installed"
                 )
 
@@ -144,17 +147,19 @@ class YellowVersionedIntegrationTool:
                     action="already_up_to_date",
                     version=current_version,
                     files_modified=[],
+                    diffs=[],
                     message="Yellow integration layer is current"
                 )
 
             if self._is_upgrade_needed(current_version):
                 await self.emit_event("thought", content=f"Upgrading from {current_version} to {self.INTEGRATION_VERSION}...")
-                files = self._inject_full_layer(yellow_dir, overwrite=True)
+                files, diffs = self._inject_full_layer(yellow_dir, overwrite=True)
                 return YellowVersionedIntegrationOutput(
                     success=True,
                     action="upgraded",
                     version=self.INTEGRATION_VERSION,
                     files_modified=files,
+                    diffs=diffs,
                     message=f"Upgraded from {current_version} to {self.INTEGRATION_VERSION}"
                 )
 
@@ -224,6 +229,7 @@ class YellowVersionedIntegrationTool:
             "yellow_versioned_status": "success" if result.success else "failed",
             "yellow_versioned_action": result.action,
             "yellow_versioned_files": result.files_modified,
+            "yellow_tool_diffs": result.diffs,
             "thinking_log": state.get("thinking_log", []) + [result.message]
         }
 
@@ -252,14 +258,15 @@ class YellowVersionedIntegrationTool:
     # Inject Layer
     # -----------------------------------------
 
-    def _inject_full_layer(self, yellow_dir: Path, overwrite: bool = False) -> List[str]:
+    def _inject_full_layer(self, yellow_dir: Path, overwrite: bool = False) -> tuple[List[str], List[Dict[str, Any]]]:
         """
         Create full Yellow integration layer.
         Returns list of files created/modified.
         """
         yellow_dir.mkdir(parents=True, exist_ok=True)
 
-        files_created = []
+        files_created: list[str] = []
+        diffs: list[Dict[str, Any]] = []
         file_templates = {
             "version.ts": self._version_template(),
             "config.ts": self._config_template(),
@@ -267,13 +274,16 @@ class YellowVersionedIntegrationTool:
             "auth.ts": self._auth_template(),
         }
 
+        repo_root = yellow_dir.parents[2]
         for filename, content in file_templates.items():
             file_path = yellow_dir / filename
             if not file_path.exists() or overwrite:
-                file_path.write_text(content)
+                diff = write_file_with_diff(repo_root, f"src/lib/yellow/{filename}", content)
+                if diff:
+                    diffs.append(diff)
                 files_created.append(f"src/lib/yellow/{filename}")
 
-        return files_created
+        return files_created, diffs
 
     # -----------------------------------------
     # Templates

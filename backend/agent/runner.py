@@ -5,7 +5,7 @@ from langgraph.types import Command
 
 from agent.graph import app_graph
 from services.pending_diff_service import set_pending_diff
-from services.sandbox_fs_service import get_file_tree
+from services.sandbox_fs_service import get_file_tree, require_root
 from utils.logger import get_logger
 
 
@@ -48,6 +48,10 @@ async def run_agent(runId: str, prompt: str) -> AsyncIterator[Dict[str, Any]]:
         initial_state = {"prompt": prompt}
         if tree:
             initial_state["tree"] = tree  # type: ignore[arg-type]
+        try:
+            initial_state["repo_path"] = str(require_root())
+        except Exception:
+            initial_state["repo_path"] = ""
 
         config = {"configurable": {"thread_id": runId}}
         async for ev in app_graph.astream_events(

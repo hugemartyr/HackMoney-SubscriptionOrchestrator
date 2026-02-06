@@ -13,11 +13,13 @@ class AgentState(TypedDict, total=False):
     # Existing fields
     prompt: str
     tree: Dict[str, Any]
+    repo_path: str
     files_to_read: List[str]
     file_contents: Dict[str, str]
     plan_notes: str
     sdk_version: str
     diffs: List[Diff]
+    tool_diffs: List[Diff]
     errors: List[str]
     
     # New fields for enhanced flow

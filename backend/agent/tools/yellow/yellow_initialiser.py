@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
 from langchain_core.callbacks import AsyncCallbackHandler
+from agent.tools.yellow.diff_utils import write_file_with_diff
 
 
 class YellowInitializerInput(BaseModel):
@@ -21,6 +22,7 @@ class YellowInitializerOutput(BaseModel):
     framework_detected: str
     steps_completed: Dict[str, bool]
     files_modified: list[str]
+    diffs: list[Dict[str, Any]] = []
     message: str
     error: Optional[str] = None
 
@@ -156,6 +158,7 @@ class YellowInitializerTool:
                 "yellow_initialized": result.success,
                 "framework_detected": result.framework_detected,
                 "initialization_results": result.dict(),
+                "yellow_tool_diffs": result.diffs,
                 "messages": state.get("messages", []) + [{
                     "role": "assistant",
                     "content": result.message
@@ -201,6 +204,7 @@ class YellowInitializerTool:
 
         framework = framework_hint or self._detect_framework(package_json)
         files_modified = []
+        diffs: list[Dict[str, Any]] = []
         steps_completed = {
             "dependencies_installed": False,
             "typescript_configured": False,
@@ -215,25 +219,29 @@ class YellowInitializerTool:
             steps_completed["dependencies_installed"] = True
 
             # Step 2: Configure TypeScript
-            ts_files = self._setup_typescript(repo)
+            ts_files, ts_diffs = self._setup_typescript(repo)
             steps_completed["typescript_configured"] = True
             files_modified.extend(ts_files)
+            diffs.extend(ts_diffs)
 
             # Step 3: Setup environment and wallet
             env_result = self._setup_env(repo)
             steps_completed.update(env_result["steps"])
             files_modified.extend(env_result["files"])
+            diffs.extend(env_result["diffs"])
 
             # Step 4: Inject Yellow scaffold
-            scaffold_files = self._inject_scaffold(repo, framework)
+            scaffold_files, scaffold_diffs = self._inject_scaffold(repo, framework)
             steps_completed["scaffold_injected"] = True
             files_modified.extend(scaffold_files)
+            diffs.extend(scaffold_diffs)
 
             return YellowInitializerOutput(
                 success=True,
                 framework_detected=framework,
                 steps_completed=steps_completed,
                 files_modified=files_modified,
+                diffs=diffs,
                 message=f"Yellow SDK initialized successfully for {framework} project"
             )
 
@@ -243,6 +251,7 @@ class YellowInitializerTool:
                 framework_detected=framework,
                 steps_completed=steps_completed,
                 files_modified=files_modified,
+                diffs=diffs,
                 message="Yellow SDK initialization failed partway through",
                 error=str(e)
             )
@@ -294,7 +303,7 @@ class YellowInitializerTool:
     # TypeScript Setup
     # --------------------------------------------------
 
-    def _setup_typescript(self, repo: Path) -> list[str]:
+    def _setup_typescript(self, repo: Path) -> tuple[list[str], list[Dict[str, Any]]]:
         """Configure TypeScript safely merging with existing tsconfig.json."""
         tsconfig_path = repo / "tsconfig.json"
 
@@ -314,16 +323,23 @@ class YellowInitializerTool:
         }
 
         modified_files = []
+        diffs: list[Dict[str, Any]] = []
 
         if tsconfig_path.exists():
             existing = json.loads(tsconfig_path.read_text())
             existing.update(yellow_config)
-            tsconfig_path.write_text(json.dumps(existing, indent=2))
+            content = json.dumps(existing, indent=2)
+            diff = write_file_with_diff(repo, "tsconfig.json", content)
+            if diff:
+                diffs.append(diff)
         else:
-            tsconfig_path.write_text(json.dumps(yellow_config, indent=2))
+            content = json.dumps(yellow_config, indent=2)
+            diff = write_file_with_diff(repo, "tsconfig.json", content)
+            if diff:
+                diffs.append(diff)
 
         modified_files.append("tsconfig.json")
-        return modified_files
+        return modified_files, diffs
 
     # --------------------------------------------------
     # Environment + Wallet
@@ -340,13 +356,16 @@ CLEARNODE_WS_URL=wss://clearnet-sandbox.yellow.com/ws
 """
 
         modified_files = []
+        diffs: list[Dict[str, Any]] = []
         steps = {
             "env_created": False,
             "wallet_generated": False
         }
 
         if not env_path.exists():
-            env_path.write_text(default_env)
+            diff = write_file_with_diff(repo, ".env", default_env)
+            if diff:
+                diffs.append(diff)
             modified_files.append(".env")
             steps["env_created"] = True
 
@@ -356,7 +375,9 @@ CLEARNODE_WS_URL=wss://clearnet-sandbox.yellow.com/ws
             try:
                 private_key = self._generate_wallet(repo)
                 content = content.replace("PRIVATE_KEY=", f"PRIVATE_KEY={private_key}")
-                env_path.write_text(content)
+                diff = write_file_with_diff(repo, ".env", content)
+                if diff:
+                    diffs.append(diff)
                 steps["wallet_generated"] = True
                 if ".env" not in modified_files:
                     modified_files.append(".env")
@@ -365,7 +386,8 @@ CLEARNODE_WS_URL=wss://clearnet-sandbox.yellow.com/ws
 
         return {
             "files": modified_files,
-            "steps": steps
+            "steps": steps,
+            "diffs": diffs,
         }
 
     def _generate_wallet(self, repo: Path) -> str:
@@ -395,7 +417,7 @@ console.log(privateKey);
     # Yellow Scaffold Injection
     # --------------------------------------------------
 
-    def _inject_scaffold(self, repo: Path, framework: str) -> list[str]:
+    def _inject_scaffold(self, repo: Path, framework: str) -> tuple[list[str], list[Dict[str, Any]]]:
         """Inject Yellow initialization scaffold."""
         src_dir = repo / "src"
         src_dir.mkdir(exist_ok=True)
@@ -442,12 +464,15 @@ export default initYellow;
 """
 
         modified_files = []
+        diffs: list[Dict[str, Any]] = []
 
         if not target.exists():
-            target.write_text(scaffold)
+            diff = write_file_with_diff(repo, str(target.relative_to(repo)), scaffold)
+            if diff:
+                diffs.append(diff)
             modified_files.append(str(target.relative_to(repo)))
 
-        return modified_files
+        return modified_files, diffs
 
     def _read_scaffold_file(self, path: Path) -> str:
         """Read scaffold file for code_update event."""

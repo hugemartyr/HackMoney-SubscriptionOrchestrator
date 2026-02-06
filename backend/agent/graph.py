@@ -18,11 +18,13 @@ def start_agent_node(state: AgentState) -> AgentState:
     return AgentState(
         prompt = state.get("prompt") or "",
         tree = state.get("tree") or {},
+        repo_path = state.get("repo_path") or "",
         files_to_read = state.get("files_to_read") or [],
         file_contents = state.get("file_contents") or {},
         plan_notes = state.get("plan_notes") or "",
         sdk_version = state.get("sdk_version") or "",
         diffs = state.get("diffs") or [],
+        tool_diffs = state.get("tool_diffs") or [],
         errors = state.get("errors") or [],
         build_command = state.get("build_command") or "",
         build_output = state.get("build_output") or "",
@@ -128,6 +130,35 @@ def route_after_yellow(state: AgentState) -> Literal["write_code", "await_approv
         return "await_approval"
     return "write_code"
 
+def route_after_workflow(state: AgentState) -> Literal["write_code", "yellow_versioned"]:
+    """
+    If the Yellow workflow tool indicates that versioned integration is needed, route there.
+    Otherwise, proceed with normal code generation.
+    """
+    if state.get("needs_versioned"):
+        return "yellow_versioned"
+    return "write_code"
+
+def route_after_init(state: AgentState) -> Literal["yellow_workflow", "yellow_versioned"]:
+    """
+    After Yellow init, if the agent indicated a preference for Yellow tools, route to workflow.
+    Otherwise, if versioned integration is needed, route there. If neither, default to workflow for safety.
+    """
+    if state.get("needs_yellow"):
+        return "yellow_workflow"
+    if state.get("needs_versioned"):
+        return "yellow_versioned"
+    return "yellow_workflow"  # Default to workflow if no clear preference  
+
+def route_after_yellow(state: AgentState) -> Literal["yellow_multiparty", "escrow", "subscriber", "settlement", "unknown"]:
+    """
+    After Yellow versioned integration, route based on specific integration type if indicated.
+    If no clear preference, route to a generic Yellow multiparty flow.
+    """
+    if state.get("needs_multiparty"):
+        return "yellow_multiparty"
+    # Future: could have more specific flows for escrow/subscriber/settlement if we see enough demand for them.
+    return "yellow_multiparty"  # Default to multiparty if no clear preference      
 
 # Build the graph
 workflow = StateGraph(AgentState)
@@ -183,15 +214,37 @@ workflow.add_edge("update_memory", "context_check")
 # Main flow (with Yellow parsing & conditional tools)
 workflow.add_edge("architect", "parse_yellow")
 workflow.add_edge("parse_yellow", "yellow_init")
-workflow.add_edge("yellow_init", "yellow_workflow")
-workflow.add_edge("yellow_workflow", "yellow_multiparty")
-workflow.add_edge("yellow_multiparty", "yellow_versioned")
+
+workflow.add_conditional_edges(
+    "yellow_init",
+    route_after_init,
+    {
+        "yellow_workflow": "yellow_workflow",
+        "yellow_versioned": "yellow_versioned",
+    }
+)
+
+
+
+workflow.add_edge("yellow_versioned", "yellow_multiparty")
+
+workflow.add_conditional_edges(
+    "yellow_workflow",
+    route_after_workflow,
+    {
+        "write_code": "write_code",
+        "yellow_versioned": "yellow_versioned",
+    }
+)
 workflow.add_conditional_edges(
     "yellow_versioned",
     route_after_yellow,
     {
-        "write_code": "write_code",
-        "await_approval": "await_approval",
+        "yellow_multiparty": "yellow_multiparty",
+        "escrow": "escrow",
+        "subscriber": "subscriber",
+        "settlement": "settlement",
+        "unknown": "unknown",  # Default to write_code if no clear preference
     }
 )
 workflow.add_edge("write_code", "await_approval")

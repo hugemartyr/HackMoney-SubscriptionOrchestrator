@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional, Tuple
 
 from pydantic import BaseModel
 from langchain_core.callbacks import AsyncCallbackHandler
+from agent.tools.yellow.diff_utils import write_file_with_diff
 
 
 class YellowMultiPartyInput(BaseModel):
@@ -19,6 +20,7 @@ class YellowMultiPartyOutput(BaseModel):
     success: bool
     route_created: Optional[str]
     files_modified: List[str]
+    diffs: List[Dict[str, Any]] = []
     message: str
     error: Optional[str] = None
 
@@ -126,10 +128,21 @@ class YellowNextMultiPartyFullLifecycle:
 
             # Execute setup
             self._install_dependencies(repo)
-            self._ensure_env(repo)
-            route_path = self._create_route(repo)
-            files = self._update_scripts(repo)
+            files: list[str] = []
+            diffs: list[Dict[str, Any]] = []
+
+            env_files, env_diffs = self._ensure_env(repo)
+            files.extend(env_files)
+            diffs.extend(env_diffs)
+
+            route_path, route_diff = self._create_route(repo)
+            if route_diff:
+                diffs.append(route_diff)
             files.append(str(Path(route_path).relative_to(repo)))
+
+            script_files, script_diffs = self._update_scripts(repo, return_diffs=True)
+            files.extend(script_files)
+            diffs.extend(script_diffs)
 
             await self.emit_event("thought", content="Multiparty route created successfully")
 
@@ -137,6 +150,7 @@ class YellowNextMultiPartyFullLifecycle:
                 success=True,
                 route_created=str(route_path),
                 files_modified=files,
+                diffs=diffs,
                 message="Multiparty workflow setup complete. Run `npm run dev` then call /api/yellow/multi-party"
             )
 
@@ -195,6 +209,7 @@ class YellowNextMultiPartyFullLifecycle:
             "yellow_multiparty_status": "success" if result.success else "failed",
             "yellow_multiparty_route": result.route_created,
             "yellow_multiparty_files": result.files_modified,
+            "yellow_tool_diffs": result.diffs,
             "thinking_log": state.get("thinking_log", []) + [result.message]
         }
 
@@ -265,15 +280,21 @@ class YellowNextMultiPartyFullLifecycle:
             check=True
         )
 
-    def _ensure_env(self, repo: Path) -> None:
+    def _ensure_env(self, repo: Path) -> tuple[List[str], List[Dict[str, Any]]]:
         """Create .env file if it doesn't exist."""
         env_path = repo / ".env"
-        if not env_path.exists():
-            env_path.write_text(
-                "SEED_PHRASE=\nWALLET_2_SEED_PHRASE=\n"
-            )
+        diffs: list[Dict[str, Any]] = []
+        files: list[str] = []
 
-    def _update_scripts(self, repo: Path) -> List[str]:
+        if not env_path.exists():
+            diff = write_file_with_diff(repo, ".env", "SEED_PHRASE=\nWALLET_2_SEED_PHRASE=\n")
+            if diff:
+                diffs.append(diff)
+            files.append(".env")
+
+        return files, diffs
+
+    def _update_scripts(self, repo: Path, return_diffs: bool = False) -> List[str] | tuple[List[str], List[Dict[str, Any]]]:
         """Update package.json with Yellow multiparty script. Returns list of modified files."""
         pkg_path = repo / "package.json"
         pkg = json.loads(pkg_path.read_text())
@@ -284,21 +305,25 @@ class YellowNextMultiPartyFullLifecycle:
         pkg["scripts"]["yellow:multi"] = \
             "curl http://localhost:3000/api/yellow/multi-party"
 
-        pkg_path.write_text(json.dumps(pkg, indent=2))
-        return [str(pkg_path.relative_to(repo))]
+        content = json.dumps(pkg, indent=2)
+        diff = write_file_with_diff(repo, str(pkg_path.relative_to(repo)), content)
+        files = [str(pkg_path.relative_to(repo))]
+        diffs = [d for d in [diff] if d]
+        return (files, diffs) if return_diffs else files
 
     # --------------------------------------------------
     # Create Route
     # --------------------------------------------------
 
-    def _create_route(self, repo: Path) -> Path:
+    def _create_route(self, repo: Path) -> tuple[Path, Optional[Dict[str, Any]]]:
         app_router = repo / "src" / "app" / "api" / "yellow" / "multi-party"
 
         app_router.mkdir(parents=True, exist_ok=True)
         route_file = app_router / "route.ts"
-        route_file.write_text(self._route_template())
+        rel_path = str(route_file.relative_to(repo))
+        diff = write_file_with_diff(repo, rel_path, self._route_template())
 
-        return route_file
+        return route_file, diff
 
     # --------------------------------------------------
     # Full Lifecycle Route Template

@@ -11,7 +11,7 @@ class AgentPrompts:
     )
 
     CODER_SYSTEM_TEMPLATE = (
-        "You are a senior engineer helping integrate Yellow Network SDK (@yellow-network/sdk) into an existing project.\n"
+        "You are a senior engineer helping integrate Yellow Network SDK into an existing project.\n"
         "Analyze the codebase, the plan, and the provided documentation to propose specific code changes.\n\n"
         "Return ONLY a single JSON object with this exact structure:\n"
         "{\n"
@@ -27,8 +27,6 @@ class AgentPrompts:
         "- Include the COMPLETE file content in both oldCode and newCode\n"
         "- Only propose changes to files that need Yellow SDK integration\n"
         "- Be precise and maintain existing code style\n"
-        "- Include import statements for @yellow-network/sdk where needed\n"
-        "- Do not create new files, only modify existing ones\n"
         "- Return empty diffs array if no changes are needed\n"
         "- FOLLOW THE INTEGRATION RULES STRICTLY.\n"
         "No additional keys. No surrounding text."

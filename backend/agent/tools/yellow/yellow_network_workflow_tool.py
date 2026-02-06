@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 from langchain_core.callbacks import AsyncCallbackHandler
+from agent.tools.yellow.diff_utils import write_file_with_diff
 
 
 class YellowNetworkWorkflowInput(BaseModel):
@@ -19,6 +20,7 @@ class YellowNetworkWorkflowOutput(BaseModel):
     wallet_address: Optional[str]
     workflow_output: Optional[str]
     files_modified: List[str]
+    diffs: List[Dict[str, Any]] = []
     message: str
     error: Optional[str] = None
 
@@ -69,7 +71,11 @@ class YellowNetworkWorkflowTool:
             # Perform operations
             self._ensure_dependencies(repo)
             env = self._ensure_env(repo)
-            files = self._inject_workflow(repo)
+            diffs: list[Dict[str, Any]] = []
+            env, env_diffs = self._ensure_env(repo)
+            diffs.extend(env_diffs)
+            files, workflow_diffs = self._inject_workflow(repo)
+            diffs.extend(workflow_diffs)
 
             await self.emit_event("thought", content="Running Yellow workflow script...")
             output = self._run_workflow(repo)
@@ -81,6 +87,7 @@ class YellowNetworkWorkflowTool:
                 wallet_address=env.get("wallet_address"),
                 workflow_output=output,
                 files_modified=files,
+                diffs=diffs,
                 message="Workflow executed successfully",
             )
 
@@ -120,6 +127,7 @@ class YellowNetworkWorkflowTool:
             "yellow_workflow_wallet": result.wallet_address,
             "yellow_workflow_output": result.workflow_output,
             "yellow_workflow_files": result.files_modified,
+            "yellow_tool_diffs": result.diffs,
             "thinking_log": state.get("thinking_log", []) + [result.message]
         }
 
@@ -136,10 +144,13 @@ class YellowNetworkWorkflowTool:
         self._run_cmd("npm install", repo)
         self._run_cmd("npm install @erc7824/nitrolite viem ws dotenv tsx", repo)
 
-    def _ensure_env(self, repo: Path) -> Dict[str, str]:
+    def _ensure_env(self, repo: Path) -> tuple[Dict[str, str], List[Dict[str, Any]]]:
         env_path = repo / ".env"
+        diffs: list[Dict[str, Any]] = []
         if not env_path.exists():
-            env_path.write_text("PRIVATE_KEY=\nALCHEMY_RPC_URL=\n")
+            diff = write_file_with_diff(repo, ".env", "PRIVATE_KEY=\nALCHEMY_RPC_URL=\n")
+            if diff:
+                diffs.append(diff)
 
         content = env_path.read_text()
         lines = content.splitlines()
@@ -158,7 +169,9 @@ class YellowNetworkWorkflowTool:
             env_vars["PRIVATE_KEY"] = pk
 
         updated = "\n".join([f"{k}={v}" for k, v in env_vars.items()])
-        env_path.write_text(updated)
+        diff = write_file_with_diff(repo, ".env", updated)
+        if diff:
+            diffs.append(diff)
 
         wallet_address = self._get_wallet_address(repo)
 
@@ -172,7 +185,7 @@ class YellowNetworkWorkflowTool:
         except Exception:
             pass
 
-        return {"wallet_address": wallet_address}
+        return {"wallet_address": wallet_address}, diffs
 
     def _generate_wallet(self, repo: Path) -> str:
         script = """
@@ -200,7 +213,7 @@ console.log(account.address);
             temp.unlink()
         return out.strip()
 
-    def _inject_workflow(self, repo: Path) -> List[str]:
+    def _inject_workflow(self, repo: Path) -> tuple[List[str], List[Dict[str, Any]]]:
         src = repo / "src"
         src.mkdir(exist_ok=True)
 
@@ -230,8 +243,10 @@ ws.on('message', (msg) => {{
 }});
 """
 
-        workflow.write_text(workflow_code)
-        return [str(workflow.relative_to(repo))]
+        rel_path = str(workflow.relative_to(repo))
+        diff = write_file_with_diff(repo, rel_path, workflow_code)
+        diffs = [d for d in [diff] if d]
+        return [rel_path], diffs
 
     def _run_workflow(self, repo: Path) -> str:
         out = subprocess.check_output(
@@ -242,247 +257,3 @@ ws.on('message', (msg) => {{
             timeout=120,
         )
         return out.decode()
-import os
-import json
-import subprocess
-from pathlib import Path
-from typing import Dict, Any
-
-
-class YellowNetworkWorkflowTool:
-    name = "yellow_network_workflow"
-    description = """
-    Integrates a repository with Yellow Network using Nitrolite SDK.
-    Installs missing dependencies, ensures environment config,
-    generates workflow script, requests faucet funds, authenticates,
-    creates channel (if not exists), resizes, closes, and withdraws.
-    """
-
-    SANDBOX_WS = "wss://clearnet-sandbox.yellow.com/ws"
-    SANDBOX_FAUCET = "https://clearnet-sandbox.yellow.com/faucet/requestTokens"
-    DEFAULT_SEPOLIA_RPC = "https://rpc.sepolia.org"
-
-    def run(self, repo_path: str) -> Dict[str, Any]:
-        repo = Path(repo_path).resolve()
-
-        if not repo.exists():
-            return {"success": False, "error": "Repository path does not exist"}
-
-        if not (repo / "package.json").exists():
-            return {"success": False, "error": "Not a Node project (missing package.json)"}
-
-        try:
-            self._ensure_dependencies(repo)
-            env = self._ensure_env(repo)
-            self._inject_workflow(repo)
-            output = self._run_workflow(repo)
-
-            return {
-                "success": True,
-                "wallet_address": env["wallet_address"],
-                "workflow_output": output
-            }
-
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    # -------------------------------------------
-    # Dependency Management
-    # -------------------------------------------
-
-    def _ensure_dependencies(self, repo: Path):
-        subprocess.run("npm install", cwd=str(repo), shell=True, check=True)
-
-        subprocess.run(
-            "npm install @erc7824/nitrolite viem ws dotenv tsx",
-            cwd=str(repo),
-            shell=True,
-            check=True
-        )
-
-    # -------------------------------------------
-    # Environment Setup
-    # -------------------------------------------
-
-    def _ensure_env(self, repo: Path) -> Dict[str, str]:
-        env_path = repo / ".env"
-
-        if not env_path.exists():
-            env_path.write_text("PRIVATE_KEY=\nALCHEMY_RPC_URL=\n")
-
-        content = env_path.read_text()
-        lines = content.splitlines()
-        env_vars = {}
-
-        for line in lines:
-            if "=" in line:
-                k, v = line.split("=", 1)
-                env_vars[k.strip()] = v.strip()
-
-        # Fallback RPC
-        if not env_vars.get("ALCHEMY_RPC_URL"):
-            env_vars["ALCHEMY_RPC_URL"] = self.DEFAULT_SEPOLIA_RPC
-
-        # Generate wallet if missing
-        if not env_vars.get("PRIVATE_KEY") or not env_vars["PRIVATE_KEY"].startswith("0x"):
-            private_key = self._generate_wallet(repo)
-            env_vars["PRIVATE_KEY"] = private_key
-
-        updated = "\n".join([f"{k}={v}" for k, v in env_vars.items()])
-        env_path.write_text(updated)
-
-        wallet_address = self._get_wallet_address(repo)
-
-        # Request faucet funds
-        subprocess.run(
-            f'curl -XPOST {self.SANDBOX_FAUCET} '
-            f'-H "Content-Type: application/json" '
-            f'-d \'{{"userAddress":"{wallet_address}"}}\'',
-            shell=True,
-            check=False
-        )
-
-        return {"wallet_address": wallet_address}
-
-    def _generate_wallet(self, repo: Path) -> str:
-        script = """
-        import { generatePrivateKey } from 'viem/accounts';
-        console.log(generatePrivateKey());
-        """
-
-        temp = repo / "__wallet_gen__.mjs"
-        temp.write_text(script)
-
-        result = subprocess.check_output(
-            f"node {temp.name}",
-            cwd=str(repo),
-            shell=True
-        )
-
-        temp.unlink()
-        return result.decode().strip()
-
-    def _get_wallet_address(self, repo: Path) -> str:
-        script = """
-        import { privateKeyToAccount } from 'viem/accounts';
-        import 'dotenv/config';
-        const account = privateKeyToAccount(process.env.PRIVATE_KEY);
-        console.log(account.address);
-        """
-
-        temp = repo / "__wallet_addr__.mjs"
-        temp.write_text(script)
-
-        result = subprocess.check_output(
-            f"node {temp.name}",
-            cwd=str(repo),
-            shell=True
-        )
-
-        temp.unlink()
-        return result.decode().strip()
-
-    # -------------------------------------------
-    # Workflow Injection
-    # -------------------------------------------
-
-    def _inject_workflow(self, repo: Path):
-        src = repo / "src"
-        src.mkdir(exist_ok=True)
-
-        workflow = src / "yellowWorkflow.ts"
-
-        workflow_code = f"""
-import {{
-  NitroliteClient,
-  WalletStateSigner,
-  createECDSAMessageSigner,
-  createAuthRequestMessage,
-  createAuthVerifyMessageFromChallenge,
-  createCreateChannelMessage,
-  createResizeChannelMessage,
-  createCloseChannelMessage
-}} from '@erc7824/nitrolite';
-
-import {{
-  createPublicClient,
-  createWalletClient,
-  http
-}} from 'viem';
-
-import {{ sepolia }} from 'viem/chains';
-import {{ privateKeyToAccount, generatePrivateKey }} from 'viem/accounts';
-import WebSocket from 'ws';
-import 'dotenv/config';
-
-const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${{string}}`);
-const rpcUrl = process.env.ALCHEMY_RPC_URL || '{self.DEFAULT_SEPOLIA_RPC}';
-
-const publicClient = createPublicClient({{
-  chain: sepolia,
-  transport: http(rpcUrl),
-}});
-
-const walletClient = createWalletClient({{
-  chain: sepolia,
-  transport: http(rpcUrl),
-  account,
-}});
-
-const client = new NitroliteClient({{
-  publicClient,
-  walletClient,
-  stateSigner: new WalletStateSigner(walletClient),
-  addresses: {{
-    custody: '0x019B65A265EB3363822f2752141b3dF16131b262',
-    adjudicator: '0x7c7ccbc98469190849BCC6c926307794fDfB11F2',
-  }},
-  chainId: sepolia.id,
-  challengeDuration: 3600n,
-}});
-
-const ws = new WebSocket('{self.SANDBOX_WS}');
-
-async function main() {{
-  console.log('Wallet:', account.address);
-
-  ws.on('open', async () => {{
-    console.log('Connected to Yellow sandbox');
-
-    const sessionPrivateKey = generatePrivateKey();
-    const sessionSigner = createECDSAMessageSigner(sessionPrivateKey);
-
-    const authMsg = await createAuthRequestMessage({{
-      address: account.address,
-      application: 'LLM Tool',
-      session_key: privateKeyToAccount(sessionPrivateKey).address,
-      allowances: [{{ asset: 'ytest.usd', amount: '1000000000' }}],
-      expires_at: BigInt(Math.floor(Date.now()/1000) + 3600),
-      scope: 'llm.tool'
-    }});
-
-    ws.send(authMsg);
-  }});
-
-  ws.on('message', async (msg) => {{
-    console.log('WS:', msg.toString());
-  }});
-}}
-
-main().catch(console.error);
-"""
-        workflow.write_text(workflow_code)
-
-    # -------------------------------------------
-    # Execute Workflow
-    # -------------------------------------------
-
-    def _run_workflow(self, repo: Path) -> str:
-        result = subprocess.check_output(
-            "npx tsx src/yellowWorkflow.ts",
-            cwd=str(repo),
-            shell=True,
-            stderr=subprocess.STDOUT,
-            timeout=120
-        )
-        return result.decode()
