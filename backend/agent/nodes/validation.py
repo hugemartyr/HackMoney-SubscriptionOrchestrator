@@ -18,7 +18,10 @@ async def await_approval_node(state: AgentState) -> AgentState:
             "awaiting_approval": False,
             "approved_files": [],
             "pending_approval_files": [],
-            "thinking_log": state.get("thinking_log", []) + ["No files to approve, proceeding..."],
+            "thinking_log": state.get("thinking_log", []) + [
+                "No files to approve, proceeding...",
+                "Yellow tool workflow preferred; skipping generic codegen approvals."
+            ] if state.get("needs_yellow") else state.get("thinking_log", []) + ["No files to approve, proceeding..."],
         }
 
     # interrupt() PAUSES the graph; on resume it returns the Command(resume=...) value

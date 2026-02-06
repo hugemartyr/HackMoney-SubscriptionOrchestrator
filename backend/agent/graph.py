@@ -8,24 +8,7 @@ from langgraph.graph import END, StateGraph
 from agent.state import AgentState
 
 # Import nodes from the new package
-from agent.nodes import (
-    context_check_node,
-    read_code_node,
-    analyze_imports_node,
-    retrieve_docs_node,
-    research_node,
-    update_memory_node,
-    architect_node,
-    write_code_node,
-    await_approval_node,
-    coding_node,
-    build_node,
-    error_analysis_node,
-    memory_check_node,
-    fix_plan_node,
-    escalation_node,
-    summary_node
-)
+import agent.nodes as nodes
 
 
 def start_agent_node(state: AgentState) -> AgentState:
@@ -136,28 +119,42 @@ def check_memory(state: AgentState) -> Literal["retry", "escalate"]:
         return "escalate"
     return "retry"
 
+def route_after_yellow(state: AgentState) -> Literal["write_code", "await_approval"]:
+    """
+    Prefer Yellow tool workflow for Yellow-specific prompts.
+    If Yellow is required, skip generic LLM codegen and proceed to approval/build.
+    """
+    if state.get("needs_yellow"):
+        return "await_approval"
+    return "write_code"
+
 
 # Build the graph
 workflow = StateGraph(AgentState)
 
 # Add nodes
 workflow.add_node("start_agent", start_agent_node)
-workflow.add_node("context_check", context_check_node)
-workflow.add_node("read_code", read_code_node)
-workflow.add_node("analyze_imports", analyze_imports_node)
-workflow.add_node("retrieve_docs", retrieve_docs_node)
-workflow.add_node("research", research_node)
-workflow.add_node("update_memory", update_memory_node)
-workflow.add_node("architect", architect_node)
-workflow.add_node("write_code", write_code_node)
-workflow.add_node("await_approval", await_approval_node)
-workflow.add_node("coding", coding_node)
-workflow.add_node("build", build_node)
-workflow.add_node("error_analysis", error_analysis_node)
-workflow.add_node("memory_check", memory_check_node)
-workflow.add_node("fix_plan", fix_plan_node)
-workflow.add_node("escalation", escalation_node)
-workflow.add_node("summary", summary_node)
+workflow.add_node("context_check", nodes.context_check_node)
+workflow.add_node("read_code", nodes.read_code_node)
+workflow.add_node("analyze_imports", nodes.analyze_imports_node)
+workflow.add_node("retrieve_docs", nodes.retrieve_docs_node)
+workflow.add_node("research", nodes.research_node)
+workflow.add_node("update_memory", nodes.update_memory_node)
+workflow.add_node("architect", nodes.architect_node)
+workflow.add_node("write_code", nodes.write_code_node)
+workflow.add_node("parse_yellow", nodes.parse_yellow_node)
+workflow.add_node("yellow_init", nodes.yellow_init_node)
+workflow.add_node("yellow_workflow", nodes.yellow_workflow_node)
+workflow.add_node("yellow_multiparty", nodes.yellow_multiparty_node)
+workflow.add_node("yellow_versioned", nodes.yellow_versioned_node)
+workflow.add_node("await_approval", nodes.await_approval_node)
+workflow.add_node("coding", nodes.coding_node)
+workflow.add_node("build", nodes.build_node)
+workflow.add_node("error_analysis", nodes.error_analysis_node)
+workflow.add_node("memory_check", nodes.memory_check_node)
+workflow.add_node("fix_plan", nodes.fix_plan_node)
+workflow.add_node("escalation", nodes.escalation_node)
+workflow.add_node("summary", nodes.summary_node)
 
 # Set entry point
 workflow.set_entry_point("start_agent")
@@ -183,8 +180,20 @@ workflow.add_edge("retrieve_docs", "update_memory")
 workflow.add_edge("research", "update_memory")
 workflow.add_edge("update_memory", "context_check")
 
-# Main flow
-workflow.add_edge("architect", "write_code")
+# Main flow (with Yellow parsing & conditional tools)
+workflow.add_edge("architect", "parse_yellow")
+workflow.add_edge("parse_yellow", "yellow_init")
+workflow.add_edge("yellow_init", "yellow_workflow")
+workflow.add_edge("yellow_workflow", "yellow_multiparty")
+workflow.add_edge("yellow_multiparty", "yellow_versioned")
+workflow.add_conditional_edges(
+    "yellow_versioned",
+    route_after_yellow,
+    {
+        "write_code": "write_code",
+        "await_approval": "await_approval",
+    }
+)
 workflow.add_edge("write_code", "await_approval")
 
 # HITL: await_approval uses interrupt() to pause; resume continues to coding

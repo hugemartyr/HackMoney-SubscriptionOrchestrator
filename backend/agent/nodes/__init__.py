@@ -8,6 +8,11 @@ from .context import (
 )
 from .architecture import (
     architect_node,
+    parse_yellow_node,
+    yellow_init_node,
+    yellow_workflow_node,
+    yellow_multiparty_node,
+    yellow_versioned_node,
     write_code_node,
 )
 from .validation import (

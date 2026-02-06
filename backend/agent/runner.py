@@ -84,6 +84,16 @@ async def run_agent(runId: str, prompt: str) -> AsyncIterator[Dict[str, Any]]:
                     yield {"type": "thought", "runId": runId, "content": "Researching implementation details..."}
                 elif name == "architect":
                     yield {"type": "thought", "runId": runId, "content": "Designing integration plan..."}
+                elif name == "parse_yellow":
+                    yield {"type": "thought", "runId": runId, "content": "Parsing prompt for Yellow SDK requirements..."}
+                elif name == "yellow_init":
+                    yield {"type": "thought", "runId": runId, "content": "Initializing Yellow SDK in project..."}
+                elif name == "yellow_workflow":
+                    yield {"type": "thought", "runId": runId, "content": "Running Yellow network workflow..."}
+                elif name == "yellow_multiparty":
+                    yield {"type": "thought", "runId": runId, "content": "Setting up multiparty Yellow workflow..."}
+                elif name == "yellow_versioned":
+                    yield {"type": "thought", "runId": runId, "content": "Creating versioned integration layer..."}
                 elif name == "write_code":
                     yield {"type": "thought", "runId": runId, "content": "Generating code changes..."}
                 elif name == "coding":
