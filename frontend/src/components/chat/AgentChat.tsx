@@ -127,20 +127,25 @@ export default function AgentChat() {
   const handleApplyAll = async (approved: boolean) => {
     try {
       const diffFiles = Object.keys(state.pendingDiffs);
-      const pendingCount = diffFiles.length;
 
       // Close all diff tabs in the editor
       for (const f of diffFiles) {
         closeFile(`__diff__/${f}`);
       }
+      setApprovalPending(false);
+      setApprovalFiles([]);
 
       if (!approved) {
-        await applyAllDiffs(false, state.activeRunId);
         clearPendingDiffs();
+        if (state.activeRunId) {
+          await resumeAgent(state.activeRunId, false);
+        } else {
+          await applyAllDiffs(false, state.activeRunId);
+        }
         return;
       }
 
-      // Apply edited content if a diff tab exists/was edited; otherwise apply diff.newCode.
+      // Apply edited content if a diff tab exists/was edited
       for (const f of diffFiles) {
         const diff = state.pendingDiffs[f];
         const diffTabPath = `__diff__/${f}`;
@@ -148,10 +153,16 @@ export default function AgentChat() {
         const contentToWrite = edited ?? diff.newCode;
         await putFileContent(f, contentToWrite);
       }
-
-      // Clear backend pending diffs (we applied ourselves).
-      const result = await applyAllDiffs(false, state.activeRunId);
       clearPendingDiffs();
+
+      // Resume backend: if we have activeRunId, resume applies/clears diffs and continues the agent.
+      // We already wrote edited content above, so clear backend diffs first so resume doesn't overwrite.
+      if (state.activeRunId) {
+        await applyAllDiffs(false, state.activeRunId);
+        await resumeAgent(state.activeRunId, true);
+      } else {
+        await applyAllDiffs(false, state.activeRunId);
+      }
 
       // Refresh tree to reflect new/updated files.
       try {
@@ -160,8 +171,6 @@ export default function AgentChat() {
       } catch {
         // ignore
       }
-
-      console.log(`✅ Applied ${result.applied} changes`);
     } catch (error) {
       console.error('Failed to apply all:', error);
     }
