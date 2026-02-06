@@ -2,11 +2,26 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from logging import getLogger
 
 logger = getLogger(__name__)
+
+# OpenRouter (Claude Sonnet etc.) – key and model from config (env)
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+def get_llm(**kwargs: Any):
+    """Build ChatOpenAI client for OpenRouter using OPENROUTER_API_KEY and OPENROUTER_MODEL from config."""
+    from config import settings
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(
+        base_url=OPENROUTER_BASE_URL,
+        api_key=settings.OPENROUTER_API_KEY,
+        model=settings.OPENROUTER_MODEL,
+        **kwargs,
+    )
 
 def extract_text_from_content(content) -> str:
     """

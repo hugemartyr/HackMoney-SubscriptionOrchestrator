@@ -41,22 +41,17 @@ async def generate_summary(
             
         return summary
     
-    if not settings.GOOGLE_API_KEY:
+    if not settings.OPENROUTER_API_KEY:
         return template_summary()
     
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from agent.llm.utils import get_llm
     except Exception:
         return template_summary()
     
     messages = prompts.build_summary_prompt(thinking_log, diffs, build_success, error_count)
     
-    llm = ChatGoogleGenerativeAI(
-        model=settings.GOOGLE_MODEL,
-        api_key=settings.GOOGLE_API_KEY,
-        temperature=0.3,
-        max_tokens=2048,
-    )
+    llm = get_llm(temperature=0.3, max_tokens=2048)
     
     resp = await llm.ainvoke(messages)
     content = extract_text_from_content(getattr(resp, "content", ""))

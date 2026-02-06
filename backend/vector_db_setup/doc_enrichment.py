@@ -4,8 +4,12 @@ import json
 import re
 from typing import Dict, List, Optional
 from langchain_core.documents import Document
-from langchain_google_genai import ChatGoogleGenerativeAI
 from config import settings
+
+try:
+    from agent.llm.utils import get_llm
+except Exception:
+    get_llm = None
 
 
 class DocumentEnricher:
@@ -15,12 +19,12 @@ class DocumentEnricher:
     """
     
     def __init__(self):
-        if not settings.GOOGLE_API_KEY:
-            raise ValueError("GOOGLE_API_KEY is not set. Cannot initialize enricher.")
+        if not settings.OPENROUTER_API_KEY:
+            raise ValueError("OPENROUTER_API_KEY is not set. Cannot initialize enricher.")
+        if get_llm is None:
+            raise ValueError("Failed to import get_llm. Cannot initialize enricher.")
         
-        self.llm = ChatGoogleGenerativeAI(
-            model=settings.GOOGLE_MODEL,
-            api_key=settings.GOOGLE_API_KEY,
+        self.llm = get_llm(
             temperature=0.1,  # Low temperature for consistent metadata
             max_tokens=2048,
         )

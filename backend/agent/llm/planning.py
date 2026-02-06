@@ -8,17 +8,17 @@ from agent.llm.utils import extract_text_from_content, extract_json_from_respons
 
 async def generate_plan(prompt: str, files: Dict[str, str]) -> dict:
     """
-    If GOOGLE_API_KEY is set and langchain-google-genai is installed, ask Gemini
+    If OPENROUTER_API_KEY is set, ask the configured LLM (e.g. Claude Sonnet)
     for a short notes markdown + recommended @yellow-network/sdk version.
 
     Returns dict like:
       {"notes_markdown": "...", "yellow_sdk_version": "^x.y.z"}
     """
-    if not settings.GOOGLE_API_KEY:
-        raise RuntimeError("GOOGLE_API_KEY is not set. Cannot generate plan without LLM.")
+    if not settings.OPENROUTER_API_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY is not set. Cannot generate plan without LLM.")
 
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from agent.llm.utils import get_llm
     except Exception as e:
         raise RuntimeError(f"Failed to import required LLM libraries: {e}")
 
@@ -32,14 +32,7 @@ async def generate_plan(prompt: str, files: Dict[str, str]) -> dict:
 
     messages = prompts.build_planner_prompt(prompt, context)
 
-    # Use single model from config
-    llm = ChatGoogleGenerativeAI(
-        model=settings.GOOGLE_MODEL,
-        api_key=settings.GOOGLE_API_KEY,
-        temperature=0.2,
-        max_tokens=(8192*2),
-        disable_streaming=True,
-    )
+    llm = get_llm(temperature=0.2, max_tokens=(8192 * 2))
 
     resp = await llm.ainvoke(messages)
     raw_content = getattr(resp, "content", "") or ""

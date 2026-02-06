@@ -16,11 +16,11 @@ async def generate_fix_plan(
     """
     Generate a plan to fix errors using LLM.
     """
-    if not settings.GOOGLE_API_KEY:
+    if not settings.OPENROUTER_API_KEY:
         return []
     
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from agent.llm.utils import get_llm
     except Exception:
         return []
     
@@ -51,12 +51,7 @@ async def generate_fix_plan(
     # Build prompt
     messages = prompts.build_fix_plan_prompt(error_analysis, file_context)
     
-    llm = ChatGoogleGenerativeAI(
-        model=settings.GOOGLE_MODEL,
-        api_key=settings.GOOGLE_API_KEY,
-        temperature=0.1,
-        max_tokens=8192,
-    )
+    llm = get_llm(temperature=0.1, max_tokens=8192)
     
     resp = await llm.ainvoke(messages)
     content = extract_text_from_content(getattr(resp, "content", ""))
@@ -85,22 +80,17 @@ async def escalate_issue(
     """
     Generate escalation message for human intervention using LLM.
     """
-    if not settings.GOOGLE_API_KEY:
+    if not settings.OPENROUTER_API_KEY:
         return "Issue escalated to human review due to persistent errors."
     
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from agent.llm.utils import get_llm
     except Exception:
         return "Issue escalated to human review due to persistent errors."
     
     messages = prompts.build_escalation_prompt(error_context, attempted_fixes)
     
-    llm = ChatGoogleGenerativeAI(
-        model=settings.GOOGLE_MODEL,
-        api_key=settings.GOOGLE_API_KEY,
-        temperature=0.2,
-        max_tokens=1024,
-    )
+    llm = get_llm(temperature=0.2, max_tokens=1024)
     
     resp = await llm.ainvoke(messages)
     content = extract_text_from_content(getattr(resp, "content", ""))

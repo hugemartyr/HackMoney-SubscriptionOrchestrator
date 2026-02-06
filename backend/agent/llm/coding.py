@@ -50,11 +50,11 @@ async def propose_code_changes(
             },
         )
 
-    if not settings.GOOGLE_API_KEY:
-        raise RuntimeError("GOOGLE_API_KEY is not set. Cannot propose code changes without LLM.")
+    if not settings.OPENROUTER_API_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY is not set. Cannot propose code changes without LLM.")
 
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from agent.llm.utils import get_llm
     except Exception as e:
         raise RuntimeError(f"Failed to import required LLM libraries: {e}")
 
@@ -139,19 +139,16 @@ async def propose_code_changes(
     except Exception as e:
         logger.info("Failed to serialise coder prompt messages", extra={"error": str(e)})
 
-    # Use single model from config
-    llm = ChatGoogleGenerativeAI(
-        model=settings.GOOGLE_PRO_MODEL,
-        api_key=settings.GOOGLE_API_KEY,
+    # Use OpenRouter model from config (e.g. Claude Sonnet)
+    llm = get_llm(
         temperature=0.2,
         max_tokens=(8192 * 2),
-        disable_streaming=True,
     )
 
     logger.info(
         "Invoking coder LLM",
         extra={
-            "model": settings.GOOGLE_MODEL,
+            "model": settings.OPENROUTER_MODEL,
             "temperature": 0.2,
         },
     )

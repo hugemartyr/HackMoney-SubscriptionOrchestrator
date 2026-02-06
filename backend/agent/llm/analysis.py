@@ -11,11 +11,11 @@ async def analyze_context(prompt: str, files: Dict[str, str], memory: List[str],
     Analyze if we have enough context to proceed.
     Decides between: 'ready', 'missing_code', 'missing_docs', 'need_research'.
     """
-    if not settings.GOOGLE_API_KEY:
-        raise RuntimeError("GOOGLE_API_KEY is not set.")
+    if not settings.OPENROUTER_API_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY is not set.")
 
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from agent.llm.utils import get_llm
     except Exception as e:
         raise RuntimeError(f"Failed to import required LLM libraries: {e}")
 
@@ -57,12 +57,7 @@ async def analyze_context(prompt: str, files: Dict[str, str], memory: List[str],
 
     messages = prompts.build_context_check_prompt(prompt, file_context_str, memory)
 
-    llm = ChatGoogleGenerativeAI(
-        model=settings.GOOGLE_MODEL,
-        api_key=settings.GOOGLE_API_KEY,
-        temperature=0.1, # Low temp for decision making
-        max_tokens=1024,
-    )
+    llm = get_llm(temperature=0.1, max_tokens=1024)
 
     resp = await llm.ainvoke(messages)
     content = extract_text_from_content(getattr(resp, "content", ""))
@@ -79,11 +74,11 @@ async def analyze_imports(files: Dict[str, str]) -> Dict[str, Any]:
     """
     Analyze imports and dependencies to understand the tech stack.
     """
-    if not settings.GOOGLE_API_KEY:
+    if not settings.OPENROUTER_API_KEY:
         return {"imports": [], "dependencies": []}
 
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from agent.llm.utils import get_llm
     except Exception:
         return {"imports": [], "dependencies": []}
 
@@ -108,12 +103,7 @@ async def analyze_imports(files: Dict[str, str]) -> Dict[str, Any]:
     context = "\n".join(context_parts)
     messages = prompts.build_import_analysis_prompt(context)
 
-    llm = ChatGoogleGenerativeAI(
-        model=settings.GOOGLE_MODEL,
-        api_key=settings.GOOGLE_API_KEY,
-        temperature=0.1,
-        max_tokens=1024,
-    )
+    llm = get_llm(temperature=0.1, max_tokens=1024)
 
     resp = await llm.ainvoke(messages)
     content = extract_text_from_content(getattr(resp, "content", ""))
@@ -125,11 +115,11 @@ async def conduct_research(query: str, files: Dict[str, str], docs_context: str)
     """
     Synthesize findings from code + docs.
     """
-    if not settings.GOOGLE_API_KEY:
+    if not settings.OPENROUTER_API_KEY:
         return {"findings": "LLM not configured", "next_steps": []}
 
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from agent.llm.utils import get_llm
     except Exception:
         return {"findings": "LLM Error", "next_steps": []}
 
@@ -144,12 +134,7 @@ async def conduct_research(query: str, files: Dict[str, str], docs_context: str)
     
     messages = prompts.build_research_prompt(query, file_context, docs_context)
 
-    llm = ChatGoogleGenerativeAI(
-        model=settings.GOOGLE_MODEL,
-        api_key=settings.GOOGLE_API_KEY,
-        temperature=0.2,
-        max_tokens=2048,
-    )
+    llm = get_llm(temperature=0.2, max_tokens=2048)
 
     resp = await llm.ainvoke(messages)
     content = extract_text_from_content(getattr(resp, "content", ""))
@@ -180,11 +165,11 @@ async def analyze_errors(build_output: str) -> Dict[str, Any]:
     """
     Analyze build/test errors.
     """
-    if not settings.GOOGLE_API_KEY:
+    if not settings.OPENROUTER_API_KEY:
         return {"error_type": "unknown", "fix_suggestion": "Check logs"}
 
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from agent.llm.utils import get_llm
     except Exception:
         return {"error_type": "unknown", "fix_suggestion": "Check logs"}
 
@@ -192,12 +177,7 @@ async def analyze_errors(build_output: str) -> Dict[str, Any]:
     # For now, we assume simple context
     messages = prompts.build_error_analysis_prompt(build_output, "See build output")
 
-    llm = ChatGoogleGenerativeAI(
-        model=settings.GOOGLE_MODEL,
-        api_key=settings.GOOGLE_API_KEY,
-        temperature=0.1,
-        max_tokens=1024,
-    )
+    llm = get_llm(temperature=0.1, max_tokens=1024)
 
     resp = await llm.ainvoke(messages)
     content = extract_text_from_content(getattr(resp, "content", ""))

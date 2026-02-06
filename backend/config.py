@@ -13,10 +13,13 @@ class Settings:
     # CORS
     CORS_ALLOW_ORIGINS: list[str] = _os.getenv("CORS_ALLOW_ORIGINS", "*").split(",")
 
-    # Google Gemini model configuration
+    # OpenRouter (LLM) – used for all agent LLM calls (e.g. Claude Sonnet)
+    OPENROUTER_API_KEY: str | None = _os.getenv("OPENROUTER_API_KEY")
+    OPENROUTER_MODEL: str = _os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4")
+
+    # Legacy Google Gemini (optional; kept for embeddings or fallback)
     GOOGLE_API_KEY: str | None = _os.getenv("GOOGLE_API_KEY")
     GOOGLE_MODEL: str = _os.getenv("GOOGLE_MODEL", "gemini-3-flash-preview")
-    
     GOOGLE_PRO_MODEL: str = _os.getenv("GOOGLE_PRO_MODEL", "gemini-3-pro-preview")
 
 
