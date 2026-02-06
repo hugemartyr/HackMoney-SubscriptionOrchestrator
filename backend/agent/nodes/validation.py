@@ -9,21 +9,19 @@ async def await_approval_node(state: AgentState) -> AgentState:
     diffs = state.get("diffs", [])
     files = [diff.get("file", "") for diff in diffs if diff.get("file")]
     
-    return {
-        "awaiting_approval": True,
-        "pending_approval_files": files,
-        "thinking_log": state.get("thinking_log", []) + [f"Waiting for approval on {len(files)} files..."]
-    }
+    state["awaiting_approval"] = True
+    state["pending_approval_files"] = files
+    state["thinking_log"] = state.get("thinking_log", []) + [f"Waiting for approval on {len(files)} files..."]
+    return state
 
 async def coding_node(state: AgentState) -> AgentState:
     """
     Verify code syntax/logic before build.
     """
     # Placeholder for syntax verification
-    return {
-        "awaiting_approval": False, # Clear flag once we proceed
-        "thinking_log": state.get("thinking_log", []) + ["Verifying code..."]
-    }
+    state["awaiting_approval"] = False # Clear flag once we proceed
+    state["thinking_log"] = state.get("thinking_log", []) + ["Verifying code..."]
+    return state
 
 async def build_node(state: AgentState) -> AgentState:
     """
@@ -62,11 +60,9 @@ async def build_node(state: AgentState) -> AgentState:
         output_lines.append(error_msg)
         terminal_output.append(error_msg)
         success = False
-        
-    return {
-        "build_success": success,
-        "build_output": "".join(output_lines),
-        "build_command": build_cmd,
-        "terminal_output": terminal_output,  # New field for streaming
-        "thinking_log": state.get("thinking_log", []) + [f"Build finished: {'Success' if success else 'Failed'}"]
-    }
+    state["build_success"] = success
+    state["build_output"] = "".join(output_lines)
+    state["build_command"] = build_cmd
+    state["terminal_output"] = terminal_output
+    state["thinking_log"] = state.get("thinking_log", []) + [f"Build finished: {'Success' if success else 'Failed'}"]
+    return state

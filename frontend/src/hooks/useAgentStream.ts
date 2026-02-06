@@ -28,7 +28,8 @@ export function useAgentStream() {
     if (isStreaming) return;
 
     setIsStreaming(true);
-    setLogs([]);
+    // Prepend user message so chat shows "You" vs "Agent" correctly
+    setLogs([`USER: ${prompt}`]);
 
     try {
       // Abort any previous stream (best-effort).

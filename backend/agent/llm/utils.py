@@ -4,6 +4,10 @@ import json
 import re
 from typing import Optional
 
+from logging import getLogger
+
+logger = getLogger(__name__)
+
 def extract_text_from_content(content) -> str:
     """
     Extract text from LLM response content which can be:
@@ -19,16 +23,18 @@ def extract_text_from_content(content) -> str:
             if isinstance(item, str):
                 text_parts.append(item)
             elif isinstance(item, dict):
-                # Extract text from dict content blocks
-                text = item.get("text", "") if item.get("type") == "text" else str(item)
-                if text:
-                    text_parts.append(text)
-            else:
-                text_parts.append(str(item))
+                # Only extract from explicit text content blocks; ignore metadata blobs
+                if item.get("type") == "text":
+                    text = item.get("text", "")
+                    if text:
+                        text_parts.append(text)
+            # Ignore non-text items entirely to avoid polluting the text stream
         return "".join(text_parts)
     elif isinstance(content, dict):
-        # Single dict content block
-        return content.get("text", "") if content.get("type") == "text" else str(content)
+        # Single dict content block (ignore non-text dicts)
+        if content.get("type") == "text":
+            return content.get("text", "") or ""
+        return ""
     else:
         return str(content)
 

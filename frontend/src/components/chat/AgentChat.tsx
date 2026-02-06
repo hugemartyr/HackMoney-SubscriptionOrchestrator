@@ -1,15 +1,63 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useAgentStream } from "@/hooks/useAgentStream";
 import { useProjectContext } from '@/context/ProjectContext';
 import { downloadProject, applyAllDiffs, getFileTree, putFileContent, approveDiff } from '@/lib/api';
-import { CheckCircle, XCircle, Loader2, Download, FileDiff, AlertCircle } from 'lucide-react';
+import {
+  CheckCircle,
+  XCircle,
+  Loader2,
+  Download,
+  FileDiff,
+  AlertCircle,
+  Bot,
+  User,
+} from 'lucide-react';
 
 export default function AgentChat() {
   const [input, setInput] = useState("");
   const { startAgent, logs, isStreaming } = useAgentStream();
-  const { state, clearPendingDiffs, setAuditResult, closeFile, updateFileTree, setApprovalPending, setApprovalFiles } = useProjectContext();
+  const {
+    state,
+    clearPendingDiffs,
+    setAuditResult,
+    closeFile,
+    updateFileTree,
+    setApprovalPending,
+    setApprovalFiles,
+  } = useProjectContext();
+
+  /**
+   * Classify log lines to match backend stream format from useAgentStream:
+   * - USER: … (prepended when user sends a message) → user bubble
+   * - 🤖 … (thought events) → agent message bubble
+   * - ▶️ ⏹️ 🛠️ 📁 📝 🔍 📋 🧾 🔨 ✅ ❌ → system-style compact lines
+   * - AGENT: / SYSTEM: kept for future backend use
+   */
+  const parsedMessages = useMemo(() => {
+    const agentEmoji = /^🤖\s*/;
+    const systemEmoji = /^(▶️|⏹️|🛠️|📁|📝|🔍|📋|🧾|🔨|✅|❌)/;
+    return logs.map((raw) => {
+      const trimmed = raw.trim();
+      if (trimmed.startsWith('USER:')) {
+        return { role: 'user' as const, text: trimmed.replace(/^USER:\s*/i, '').trim() };
+      }
+      if (trimmed.startsWith('AGENT:')) {
+        return { role: 'agent' as const, text: trimmed.replace(/^AGENT:\s*/i, '').trim() };
+      }
+      if (trimmed.startsWith('SYSTEM:')) {
+        return { role: 'system' as const, text: trimmed.replace(/^SYSTEM:\s*/i, '').trim() };
+      }
+      if (agentEmoji.test(trimmed)) {
+        return { role: 'agent' as const, text: trimmed.replace(agentEmoji, '').trim() };
+      }
+      if (systemEmoji.test(trimmed)) {
+        return { role: 'system' as const, text: trimmed };
+      }
+      return { role: 'log' as const, text: raw };
+    });
+  }, [logs]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -118,9 +166,70 @@ export default function AgentChat() {
 
   return (
     <>
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full bg-gradient-to-b from-gray-950 via-gray-900 to-black">
+        {/* Planning / Agent State Header */}
+        <div className="border-b border-gray-800/80 bg-gray-950/80 backdrop-blur-sm px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-full bg-yellow-500/10 border border-yellow-500/50 flex items-center justify-center">
+                <Bot className="h-4 w-4 text-yellow-400" />
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-[0.18em] text-gray-500">
+                  Yellow Agent
+                </div>
+                <div className="text-sm font-semibold text-gray-100">
+                  {isStreaming ? 'Thinking through a plan...' : 'Ready for your next task'}
+                </div>
+              </div>
+            </div>
+            {isStreaming && (
+              <div className="flex items-center gap-2 text-xs text-yellow-300">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500" />
+                </span>
+                <span>Agent is thinking</span>
+              </div>
+            )}
+          </div>
+
+          {/* Simple planning nodes with animated connecting lines */}
+          <div className="mt-3 rounded-lg bg-gray-900/70 border border-gray-800/80 px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              {['Understand', 'Plan', 'Edit', 'Verify'].map((label, index) => {
+                const activeIndex = isStreaming ? 1 : 3;
+                const isActive = index === activeIndex;
+                return (
+                  <div key={label} className="flex-1 flex items-center gap-2">
+                    <div
+                      className={[
+                        'flex-1 rounded-md px-2 py-1.5 text-[10px] text-center uppercase tracking-wide',
+                        'transition-all duration-300',
+                        isActive
+                          ? 'bg-yellow-500/20 border border-yellow-400/70 text-yellow-200 shadow-[0_0_18px_rgba(234,179,8,0.35)]'
+                          : 'bg-gray-900/80 border border-gray-700/70 text-gray-400',
+                      ].join(' ')}
+                    >
+                      {label}
+                    </div>
+                    {index < 3 && (
+                      <div className="w-6 h-px relative overflow-hidden">
+                        <div className="absolute inset-0 bg-gradient-to-r from-gray-700 via-yellow-500 to-gray-700 opacity-50" />
+                        {isStreaming && (
+                          <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(250,204,21,0.9),transparent)] animate-[slide-line_1200ms_linear_infinite]" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
         {/* Logs / Chat History */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
           {logs.length === 0 && !state.auditResult && !state.approvalPending && (
             <div className="text-gray-500 text-center mt-10">
               <h3 className="text-lg font-bold text-yellow-500">Yellow Agent</h3>
@@ -281,34 +390,90 @@ export default function AgentChat() {
               )}
             </div>
           )}
-        
-          {logs.map((log, i) => (
-            <div key={i} className="text-sm font-mono border-l-2 border-yellow-600 pl-2 py-1">
-              {log}
+          {/* Conversation + logs */}
+          {parsedMessages.length > 0 && (
+            <div className="space-y-2">
+              {parsedMessages.map((msg, i) => {
+                if (msg.role === 'user') {
+                  return (
+                    <div key={i} className="flex justify-end">
+                      <div className="max-w-[80%] flex items-end gap-2">
+                        <div className="rounded-2xl rounded-br-sm bg-yellow-500 text-black px-3 py-2 text-xs sm:text-sm shadow-lg shadow-yellow-500/20 transition-all duration-300">
+                          {msg.text}
+                        </div>
+                        <div className="h-7 w-7 rounded-full bg-yellow-400 flex items-center justify-center shadow-md shadow-yellow-500/30">
+                          <User className="h-3 w-3 text-black" />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (msg.role === 'agent') {
+                  return (
+                    <div key={i} className="flex justify-start">
+                      <div className="max-w-[80%] flex items-end gap-2">
+                        <div className="h-7 w-7 rounded-full bg-gray-900 border border-yellow-500/60 flex items-center justify-center shadow-md shadow-yellow-500/30">
+                          <Bot className="h-3 w-3 text-yellow-300" />
+                        </div>
+                        <div className="rounded-2xl rounded-bl-sm bg-gray-900/90 border border-gray-700 px-3 py-2 text-xs sm:text-sm text-gray-100 shadow-lg shadow-black/40 transition-all duration-300">
+                          {msg.text}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (msg.role === 'system') {
+                  return (
+                    <div
+                      key={i}
+                      className="text-[11px] sm:text-xs font-mono text-gray-400 bg-gray-900/60 border border-gray-800 rounded px-2 py-1"
+                    >
+                      {msg.text}
+                    </div>
+                  );
+                }
+
+                // raw log line
+                return (
+                  <div
+                    key={i}
+                    className="text-[11px] sm:text-xs font-mono border-l-2 border-yellow-600/60 pl-2 py-1 text-gray-200 bg-gray-950/60"
+                  >
+                    {msg.text}
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        
+          )}
+
           {isStreaming && (
-            <div className="text-yellow-400 text-sm animate-pulse">
-              Agent is thinking...
+            <div className="mt-3 flex items-center gap-2 text-xs text-yellow-300">
+              <div className="flex gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 animate-bounce [animation-delay:-0.2s]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 animate-bounce [animation-delay:-0.05s]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 animate-bounce [animation-delay:0.1s]" />
+              </div>
+              <span>Composing a response…</span>
             </div>
           )}
         </div>
 
         {/* Input Area */}
-        <div className="p-4 border-t border-gray-800 bg-gray-900">
+        <div className="p-4 border-t border-gray-800 bg-gray-950/95 backdrop-blur">
           <form onSubmit={handleSubmit} className="relative">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask the agent to refactor..."
-              className="w-full bg-gray-800 text-white rounded p-3 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-500 min-h-[80px]"
+              placeholder="Ask the agent to audit, refactor, or add a feature…"
+              className="w-full bg-gray-900 text-white rounded-lg p-3 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-500 min-h-[80px] border border-gray-800/80 pr-20"
               disabled={isStreaming}
             />
             <button 
               type="submit" 
               disabled={isStreaming || !input.trim()}
-              className="absolute bottom-3 right-3 bg-yellow-500 hover:bg-yellow-400 text-black px-3 py-1 rounded text-xs font-bold transition-colors disabled:opacity-50"
+              className="absolute bottom-3 right-3 bg-yellow-500 hover:bg-yellow-400 text-black px-3 py-1.5 rounded-md text-xs font-bold transition-colors disabled:opacity-50 shadow-md shadow-yellow-500/40"
             >
               SEND
             </button>
