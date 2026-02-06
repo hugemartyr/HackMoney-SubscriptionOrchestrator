@@ -8,6 +8,8 @@ export interface RunStartedEvent {
 export interface RunFinishedEvent {
   type: 'run_finished';
   runId: string;
+  /** True when paused for HITL approval; frontend keeps activeRunId for resume */
+  interrupted?: boolean;
 }
 
 export interface ThoughtEvent {

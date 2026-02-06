@@ -10,10 +10,11 @@ import { useProjectContext } from '@/context/ProjectContext';
 import WorkspaceActionBar from '@/components/workspace/WorkspaceActionBar';
 
 const LAYOUT_STORAGE_KEY = 'workspace-layout-ratios';
-const EDITOR_CHAT_MIN = 0.25;
-const EDITOR_CHAT_MAX = 0.75;
-const MAIN_TERMINAL_MIN = 0.25;
-const MAIN_TERMINAL_MAX = 0.82;
+// Allow full range so user can drag editor/chat and main/terminal as much as they want
+const EDITOR_CHAT_MIN = 0.05;
+const EDITOR_CHAT_MAX = 0.95;
+const MAIN_TERMINAL_MIN = 0.05;
+const MAIN_TERMINAL_MAX = 0.95;
 
 function loadLayoutRatios(): { editorChat: number; mainTerminal: number } {
   if (typeof window === 'undefined') return { editorChat: 0.6, mainTerminal: 0.7 };

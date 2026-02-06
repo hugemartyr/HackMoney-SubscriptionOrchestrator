@@ -78,15 +78,16 @@ export default function Terminal() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-gray-950 border-t border-gray-800">
-      <div className="px-4 py-2 bg-gray-900 border-b border-gray-800">
+    <div className="h-full flex flex-col bg-gray-950 border-t border-gray-800 relative">
+      <div className="px-4 py-2 bg-gray-900 border-b border-gray-800 shrink-0">
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
           Terminal
         </h3>
       </div>
+      {/* Scrollable output only; input overlays at bottom */}
       <div
         ref={terminalRef}
-        className="flex-1 overflow-y-auto p-3 font-mono text-xs sm:text-sm text-green-400 space-y-2"
+        className="flex-1 min-h-0 overflow-y-auto p-3 pb-14 font-mono text-xs sm:text-sm text-green-400 space-y-2"
         style={{ backgroundColor: '#050505' }}
       >
         {state.terminalLogs.length === 0 ? (
@@ -142,7 +143,8 @@ export default function Terminal() {
           </div>
         )}
       </div>
-      <div className="border-t border-gray-800 px-3 py-2 bg-gray-900">
+      {/* Input fixed at bottom so it stays visible and doesn't push down */}
+      <div className="absolute bottom-0 left-0 right-0 border-t border-gray-800 px-3 py-2 bg-gray-950/95 backdrop-blur-sm">
         <input
           type="text"
           className="w-full bg-black text-green-400 font-mono text-sm px-2 py-1 rounded border border-gray-700 outline-none focus:border-yellow-500 disabled:opacity-60"

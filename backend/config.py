@@ -16,6 +16,8 @@ class Settings:
     # Google Gemini model configuration
     GOOGLE_API_KEY: str | None = _os.getenv("GOOGLE_API_KEY")
     GOOGLE_MODEL: str = _os.getenv("GOOGLE_MODEL", "gemini-3-flash-preview")
+    
+    GOOGLE_PRO_MODEL: str = _os.getenv("GOOGLE_PRO_MODEL", "gemini-3-pro-preview")
 
 
 settings = Settings()

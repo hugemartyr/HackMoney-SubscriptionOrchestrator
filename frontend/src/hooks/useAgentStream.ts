@@ -3,6 +3,7 @@ import { SSEEvent } from '@/lib/types';
 import { useProjectContext } from '@/context/ProjectContext';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { resumeAgentFetch } from '@/lib/api';
 
 export function useAgentStream() {
   const [logs, setLogs] = useState<string[]>([]);
@@ -87,6 +88,47 @@ export function useAgentStream() {
     }
   };
 
+  const resumeAgent = async (runId: string, approved: boolean) => {
+    if (isStreaming) return;
+    if (!runId) {
+      console.warn('resumeAgent: no runId');
+      return;
+    }
+    setIsStreaming(true);
+    try {
+      const response = await resumeAgentFetch(runId, approved);
+      if (!response.ok) {
+        throw new Error(`Resume failed: ${response.status}`);
+      }
+      if (!response.body) return;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data: SSEEvent = JSON.parse(line.replace('data: ', ''));
+              handleEvent(data);
+            } catch (e) {
+              console.error('Stream parse error', e);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      setLogs(prev => [...prev, `❌ Error resuming agent`]);
+      console.error(err);
+    } finally {
+      setIsStreaming(false);
+    }
+  };
+
   const handleEvent = (event: SSEEvent) => {
     // Run scoping: only process events for the active run.
     if (event.type === 'run_started') {
@@ -101,10 +143,14 @@ export function useAgentStream() {
         setLogs(prev => [...prev, `▶️ Run started (${event.runId})`]);
         break;
 
-      case 'run_finished':
-        setLogs(prev => [...prev, `⏹️ Run finished (${event.runId})`]);
-        setActiveRunId(null);
+      case 'run_finished': {
+        const ev = event as { runId: string; interrupted?: boolean };
+        setLogs(prev => [...prev, `⏹️ Run finished (${ev.runId})`]);
+        if (!ev.interrupted) {
+          setActiveRunId(null);
+        }
         break;
+      }
 
       case 'thought':
         setLogs(prev => [...prev, `🤖 ${event.content}`]);
@@ -194,5 +240,5 @@ export function useAgentStream() {
     }
   };
 
-  return { startAgent, logs, isStreaming };
+  return { startAgent, resumeAgent, logs, isStreaming };
 }

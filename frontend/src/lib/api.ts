@@ -111,6 +111,18 @@ export async function applyAllDiffs(
   return response.json();
 }
 
+/**
+ * Resume the agent after HITL approval. Returns the fetch Response so the caller
+ * can read the SSE stream body. The backend applies diffs if approved, then continues execution.
+ */
+export function resumeAgentFetch(runId: string, approved: boolean): Promise<Response> {
+  return fetch(`${API_BASE_URL}/api/yellow-agent/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ runId, approved }),
+  });
+}
+
 export async function downloadProject(): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/api/project/download`, {
     method: 'GET',

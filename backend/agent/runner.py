@@ -1,5 +1,7 @@
 from __future__ import annotations
-from typing import Any, AsyncIterator, Dict
+from typing import Any, AsyncIterator, Dict, List
+
+from langgraph.types import Command
 
 from agent.graph import app_graph
 from services.pending_diff_service import set_pending_diff
@@ -47,7 +49,10 @@ async def run_agent(runId: str, prompt: str) -> AsyncIterator[Dict[str, Any]]:
         if tree:
             initial_state["tree"] = tree  # type: ignore[arg-type]
 
-        async for ev in app_graph.astream_events(initial_state, version="v2"):
+        config = {"configurable": {"thread_id": runId}}
+        async for ev in app_graph.astream_events(
+            initial_state, config=config, version="v2"
+        ):
             name = ev.get("name")
             event_type = ev.get("event")
             data = ev.get("data") or {}
@@ -219,8 +224,113 @@ async def run_agent(runId: str, prompt: str) -> AsyncIterator[Dict[str, Any]]:
         yield {"type": "run_finished", "runId": runId}
         return
 
+    # If graph ended without completing, check for HITL interrupt at await_approval
+    if not graph_completed:
+        try:
+            config = {"configurable": {"thread_id": runId}}
+            snapshot = app_graph.get_state(config)
+            next_nodes = getattr(snapshot, "next", ()) or ()
+            if next_nodes and "await_approval" in next_nodes:
+                values = snapshot.values or {}
+                diffs = values.get("diffs", [])
+                files = [d.get("file", "") for d in diffs if isinstance(d, dict) and d.get("file")]
+                if files:
+                    logger.debug(
+                        "Graph interrupted at await_approval, emitting awaiting_user_review",
+                        extra={"run_id": runId, "files": files},
+                    )
+                    yield {"type": "awaiting_user_review", "runId": runId, "files": files}
+                    yield {"type": "thought", "runId": runId, "content": "Waiting for user approval..."}
+                    # Signal paused for HITL so frontend keeps activeRunId for resume
+                    yield {"type": "run_finished", "runId": runId, "interrupted": True}
+                    return
+        except Exception:
+            logger.exception("Failed to check interrupt state", extra={"run_id": runId})
+
     logger.debug(
         "run_agent finished",
         extra={"run_id": runId, "graph_completed": graph_completed, "proposed_files": proposed_files},
     )
     yield {"type": "run_finished", "runId": runId}
+
+
+async def resume_agent(
+    runId: str, approved: bool, approved_files: List[str]
+) -> AsyncIterator[Dict[str, Any]]:
+    """
+    Resume the graph after HITL approval. Applies Command(resume=...) to continue from interrupt.
+    """
+    logger.debug(
+        "resume_agent started",
+        extra={"run_id": runId, "approved": approved, "approved_files_count": len(approved_files)},
+    )
+    yield {"type": "thought", "runId": runId, "content": "Resuming after user approval..."}
+
+    config = {"configurable": {"thread_id": runId}}
+    resume_value = {"approved": approved, "approved_files": approved_files}
+
+    try:
+        async for ev in app_graph.astream_events(
+            Command(resume=resume_value), config=config, version="v2"
+        ):
+            name = ev.get("name")
+            event_type = ev.get("event")
+            data = ev.get("data") or {}
+
+            if event_type == "on_chain_start" and name not in (None, "LangGraph"):
+                yield {"type": "tool_start", "runId": runId, "name": name}
+                if name == "coding":
+                    yield {"type": "thought", "runId": runId, "content": "Verifying code syntax and logic..."}
+                elif name == "build":
+                    yield {"type": "thought", "runId": runId, "content": "Running build and tests..."}
+                elif name == "error_analysis":
+                    yield {"type": "thought", "runId": runId, "content": "Analyzing build errors..."}
+                elif name == "fix_plan":
+                    yield {"type": "thought", "runId": runId, "content": "Planning fixes for errors..."}
+                elif name == "summary":
+                    yield {"type": "thought", "runId": runId, "content": "Generating final summary..."}
+
+            if event_type == "on_chain_end" and name not in (None, "LangGraph"):
+                yield {"type": "tool_end", "runId": runId, "name": name, "status": "success"}
+
+            if event_type == "on_custom_event":
+                event_data = data
+                if ev.get("name") == "terminal_output":
+                    yield {"type": "terminal", "runId": runId, "line": event_data.get("data", "")}
+                elif ev.get("name") == "build_status":
+                    yield {
+                        "type": "build",
+                        "runId": runId,
+                        "status": event_data.get("status"),
+                        "data": event_data.get("data"),
+                    }
+
+            if event_type == "on_chain_stream" and name not in (None, "LangGraph"):
+                chunk = data.get("chunk") or {}
+                if not isinstance(chunk, dict):
+                    continue
+                if "tree" in chunk:
+                    yield {"type": "file_tree", "runId": runId, "tree": chunk["tree"]}
+                if "file_contents" in chunk and isinstance(chunk["file_contents"], dict):
+                    for path, content in chunk["file_contents"].items():
+                        if isinstance(path, str) and isinstance(content, str):
+                            yield {"type": "file_content", "runId": runId, "path": path, "content": content}
+                if "terminal_output" in chunk and isinstance(chunk["terminal_output"], list):
+                    for line in chunk["terminal_output"]:
+                        yield {"type": "terminal", "runId": runId, "line": line}
+                if "build_success" in chunk and chunk.get("build_success") is not None:
+                    success = chunk.get("build_success", False)
+                    output = chunk.get("build_output", "")
+                    yield {
+                        "type": "build",
+                        "runId": runId,
+                        "status": "success" if success else "error",
+                        "data": output,
+                    }
+                if "final_summary" in chunk and chunk.get("final_summary"):
+                    yield {"type": "thought", "runId": runId, "content": chunk["final_summary"]}
+    except Exception as e:
+        logger.exception("Error during agent resume", extra={"run_id": runId})
+        yield {"type": "thought", "runId": runId, "content": f"Error during resume: {str(e)}"}
+    finally:
+        yield {"type": "run_finished", "runId": runId}

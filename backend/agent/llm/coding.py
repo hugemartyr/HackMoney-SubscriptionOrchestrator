@@ -141,7 +141,7 @@ async def propose_code_changes(
 
     # Use single model from config
     llm = ChatGoogleGenerativeAI(
-        model=settings.GOOGLE_MODEL,
+        model=settings.GOOGLE_PRO_MODEL,
         api_key=settings.GOOGLE_API_KEY,
         temperature=0.2,
         max_tokens=(8192 * 2),

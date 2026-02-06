@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, StateGraph
 
 from agent.state import AgentState
@@ -125,11 +126,6 @@ def route_context_decision(state: AgentState) -> Literal["read_code", "retrieve_
     # 6) Fallback: we have some code and docs, but context_ready is still False → do targeted research.
     return "research"
 
-def check_approval_status(state: AgentState) -> Literal["approved", "pending"]:
-    if state.get("awaiting_approval"):
-        return "pending"
-    return "approved"
-
 def check_build_result(state: AgentState) -> Literal["success", "failure"]:
     if state.get("build_success"):
         return "success"
@@ -191,15 +187,8 @@ workflow.add_edge("update_memory", "context_check")
 workflow.add_edge("architect", "write_code")
 workflow.add_edge("write_code", "await_approval")
 
-# HITL approval loop
-workflow.add_conditional_edges(
-    "await_approval",
-    check_approval_status,
-    {
-        "approved": "coding",
-        "pending": "await_approval"
-    }
-)
+# HITL: await_approval uses interrupt() to pause; resume continues to coding
+workflow.add_edge("await_approval", "coding")
 
 workflow.add_edge("coding", "build")
 
@@ -228,4 +217,4 @@ workflow.add_edge("fix_plan", "coding")  # Loop back to verify fix
 workflow.add_edge("escalation", "summary")
 workflow.add_edge("summary", END)
 
-app_graph = workflow.compile()
+app_graph = workflow.compile(checkpointer=InMemorySaver())

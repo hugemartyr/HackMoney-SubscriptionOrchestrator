@@ -11,14 +11,14 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from agent.runner import run_agent
+from agent.runner import resume_agent, run_agent
 from config import settings
 from fastapi.responses import Response, StreamingResponse
 from services.upload_service import upload_from_github
 from services.pending_diff_service import clear_pending_diffs, list_pending_diffs, pop_pending_diff
 from services.sandbox_fs_service import SKIP_DIRS, delete_file, get_file_tree, read_text_file, require_root, write_text_file
 from utils.logger import get_logger
-from utils.schemas.agent import AgentPromptRequest, ApplyAllRequest, DiffApproveRequest
+from utils.schemas.agent import AgentPromptRequest, ApplyAllRequest, DiffApproveRequest, ResumeRequest
 from utils.schemas.upload import UploadRequest
 
 
@@ -182,6 +182,44 @@ async def yellow_agent_stream(req: AgentPromptRequest):
         "Connection": "keep-alive",
     }
     logger.info("Returning StreamingResponse for yellow agent", extra={"headers": headers})
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
+
+
+@router.post("/api/yellow-agent/resume")
+async def yellow_agent_resume(req: ResumeRequest):
+    """
+    Resume the graph after HITL approval. Applies pending diffs if approved, then continues execution.
+    """
+    logger.info(
+        "Received /api/yellow-agent/resume request",
+        extra={"runId": req.runId, "approved": req.approved},
+    )
+
+    async def gen():
+        require_root()
+        approved_files: list[str] = []
+        if req.approved:
+            diffs = await list_pending_diffs(runId=req.runId)
+            for d in diffs:
+                await write_text_file(d.file, d.newCode)
+                approved_files.append(d.file)
+            await clear_pending_diffs(runId=req.runId)
+            logger.info(
+                "Applied pending diffs before resume",
+                extra={"runId": req.runId, "applied": len(approved_files)},
+            )
+        else:
+            await clear_pending_diffs(runId=req.runId)
+
+        async for event in resume_agent(req.runId, req.approved, approved_files):
+            payload = json.dumps(event, ensure_ascii=False)
+            yield f"data: {payload}\n\n"
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+    }
     return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
 
 

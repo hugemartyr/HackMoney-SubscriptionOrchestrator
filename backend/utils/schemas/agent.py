@@ -17,3 +17,8 @@ class DiffApproveRequest(BaseModel):
 class ApplyAllRequest(BaseModel):
     runId: Optional[str] = Field(default=None, max_length=128)
     approved: bool
+
+
+class ResumeRequest(BaseModel):
+    runId: str = Field(..., min_length=1, max_length=128)
+    approved: bool

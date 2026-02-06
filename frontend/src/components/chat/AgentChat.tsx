@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { useAgentStream } from "@/hooks/useAgentStream";
 import { useProjectContext } from '@/context/ProjectContext';
-import { downloadProject, applyAllDiffs, getFileTree, putFileContent, approveDiff } from '@/lib/api';
+import { downloadProject, applyAllDiffs, getFileTree, putFileContent } from '@/lib/api';
 import {
   CheckCircle,
   XCircle,
@@ -17,7 +17,7 @@ import {
 
 export default function AgentChat() {
   const [input, setInput] = useState("");
-  const { startAgent, logs, isStreaming } = useAgentStream();
+  const { startAgent, resumeAgent, logs, isStreaming } = useAgentStream();
   const {
     state,
     clearPendingDiffs,
@@ -95,13 +95,15 @@ export default function AgentChat() {
 
   const handleApproveAll = async () => {
     try {
-      // Approve all files in approvalFiles list
-      for (const file of state.approvalFiles) {
-        await approveDiff(file, true, state.activeRunId);
-      }
-      // Clear approval state
+      if (!state.activeRunId) return;
       setApprovalPending(false);
       setApprovalFiles([]);
+      // Close diff tabs
+      for (const f of state.approvalFiles) {
+        closeFile(`__diff__/${f}`);
+      }
+      clearPendingDiffs();
+      await resumeAgent(state.activeRunId, true);
     } catch (error) {
       console.error('Failed to approve files:', error);
     }
@@ -109,13 +111,14 @@ export default function AgentChat() {
 
   const handleRejectAll = async () => {
     try {
-      // Reject all files in approvalFiles list
-      for (const file of state.approvalFiles) {
-        await approveDiff(file, false, state.activeRunId);
-      }
-      // Clear approval state
+      if (!state.activeRunId) return;
       setApprovalPending(false);
       setApprovalFiles([]);
+      for (const f of state.approvalFiles) {
+        closeFile(`__diff__/${f}`);
+      }
+      clearPendingDiffs();
+      await resumeAgent(state.activeRunId, false);
     } catch (error) {
       console.error('Failed to reject files:', error);
     }
