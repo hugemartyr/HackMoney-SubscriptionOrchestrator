@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import Editor from "@monaco-editor/react";
+import React, { useEffect, useRef, useState } from 'react';
+import Editor, { DiffEditor } from '@monaco-editor/react';
 import { useEditorContext } from "@/hooks/useEditorContext";
 import { useProjectContext } from '@/context/ProjectContext';
 import EditorTabs from '@/components/editor/EditorTabs';
@@ -10,8 +10,13 @@ export default function YellowEditor() {
   const { handleEditorDidMount } = useEditorContext();
   const { state, updateDraftContent } = useProjectContext();
   const [isAgentEditing, setIsAgentEditing] = useState(false);
+  const currentFileRef = useRef<string | null>(null);
+  currentFileRef.current = state.currentFile ?? null;
+
   const isDiffTab = !!state.currentFile?.startsWith('__diff__/');
   const diffTarget = isDiffTab ? state.currentFile?.slice('__diff__/'.length) : null;
+  const pendingDiff = diffTarget ? state.pendingDiffs[diffTarget] : null;
+  const showDiffView = isDiffTab && diffTarget && pendingDiff != null;
 
   // Update editor content when file is selected or content changes
   useEffect(() => {
@@ -61,30 +66,64 @@ export default function YellowEditor() {
         </div>
       )}
       <div className="flex-1 min-h-0">
-        <Editor 
-          height="100%" 
-          language={getLanguage(isDiffTab && diffTarget ? diffTarget : state.currentFile)}
-          value={
-            state.currentFile
-              ? (state.draftContents[state.currentFile] ??
-                state.fileContents[state.currentFile] ??
-                "// File content loading...")
-              : "// Select a file from the explorer..."
-          }
-          onChange={(val) => {
-            if (!state.currentFile) return;
-            updateDraftContent(state.currentFile, val || "");
-          }}
-          theme="vs-dark"
-          onMount={handleEditorDidMount}
-          options={{
-            automaticLayout: true,
-            minimap: { enabled: false },
-            fontSize: 14,
-            scrollBeyondLastLine: false,
-            readOnly: false, // Allow user edits if needed
-          }}
-        />
+        {showDiffView ? (
+          <DiffEditor
+            height="100%"
+            language={getLanguage(diffTarget)}
+            original={pendingDiff!.oldCode ?? ''}
+            modified={
+              state.currentFile
+                ? (state.draftContents[state.currentFile] ??
+                   state.fileContents[state.currentFile] ??
+                   '')
+                : ''
+            }
+            theme="vs-dark"
+            options={{
+              renderSideBySide: true,
+              readOnly: false,
+              automaticLayout: true,
+              minimap: { enabled: false },
+              fontSize: 14,
+              scrollBeyondLastLine: false,
+            }}
+            onMount={(diffEditor) => {
+              const modifiedEditor = diffEditor.getModifiedEditor();
+              modifiedEditor.getModel()?.onDidChangeContent(() => {
+                const path = currentFileRef.current;
+                if (path) {
+                  const value = modifiedEditor.getValue();
+                  updateDraftContent(path, value);
+                }
+              });
+            }}
+          />
+        ) : (
+          <Editor
+            height="100%"
+            language={getLanguage(isDiffTab && diffTarget ? diffTarget : state.currentFile)}
+            value={
+              state.currentFile
+                ? (state.draftContents[state.currentFile] ??
+                   state.fileContents[state.currentFile] ??
+                   "// File content loading...")
+                : "// Select a file from the explorer..."
+            }
+            onChange={(val) => {
+              if (!state.currentFile) return;
+              updateDraftContent(state.currentFile, val || "");
+            }}
+            theme="vs-dark"
+            onMount={handleEditorDidMount}
+            options={{
+              automaticLayout: true,
+              minimap: { enabled: false },
+              fontSize: 14,
+              scrollBeyondLastLine: false,
+              readOnly: false,
+            }}
+          />
+        )}
       </div>
     </div>
   );
