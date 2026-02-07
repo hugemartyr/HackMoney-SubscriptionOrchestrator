@@ -17,7 +17,8 @@ import {
 
 export default function AgentChat() {
   const [input, setInput] = useState("");
-  const { startAgent, resumeAgent, logs, isStreaming } = useAgentStream();
+  const [isApplying, setIsApplying] = useState(false);
+  const { startAgent, resumeAgent, resumeFromStream, logs, isStreaming } = useAgentStream();
   const {
     state,
     clearPendingDiffs,
@@ -125,9 +126,12 @@ export default function AgentChat() {
   };
 
   const handleApplyAll = async (approved: boolean) => {
-    try {
-      const diffFiles = Object.keys(state.pendingDiffs);
+    const runId = state.activeRunId;
+    const diffFiles = Object.keys(state.pendingDiffs);
+    if (diffFiles.length === 0) return;
 
+    try {
+      setIsApplying(true);
       // Close all diff tabs in the editor
       for (const f of diffFiles) {
         closeFile(`__diff__/${f}`);
@@ -136,16 +140,16 @@ export default function AgentChat() {
       setApprovalFiles([]);
 
       if (!approved) {
+        // Discard All: clear local state, backend discards and streams resume (uses runId or last run)
         clearPendingDiffs();
-        if (state.activeRunId) {
-          await resumeAgent(state.activeRunId, false);
-        } else {
-          await applyAllDiffs(false, state.activeRunId);
+        const result = await applyAllDiffs(false, runId ?? null, true);
+        if (result instanceof Response) {
+          await resumeFromStream(result);
         }
         return;
       }
 
-      // Apply edited content if a diff tab exists/was edited
+      // Approve All: write (possibly edited) content to backend files, clear backend diffs, then resume workflow
       for (const f of diffFiles) {
         const diff = state.pendingDiffs[f];
         const diffTabPath = `__diff__/${f}`;
@@ -155,16 +159,12 @@ export default function AgentChat() {
       }
       clearPendingDiffs();
 
-      // Resume backend: if we have activeRunId, resume applies/clears diffs and continues the agent.
-      // We already wrote edited content above, so clear backend diffs first so resume doesn't overwrite.
-      if (state.activeRunId) {
-        await applyAllDiffs(false, state.activeRunId);
-        await resumeAgent(state.activeRunId, true);
-      } else {
-        await applyAllDiffs(false, state.activeRunId);
+      // Clear backend pending diffs (no resume), then resume workflow so backend does not overwrite our written content
+      await applyAllDiffs(false, runId ?? null, false);
+      if (runId) {
+        await resumeAgent(runId, true);
       }
 
-      // Refresh tree to reflect new/updated files.
       try {
         const tree = await getFileTree();
         updateFileTree(tree);
@@ -173,6 +173,8 @@ export default function AgentChat() {
       }
     } catch (error) {
       console.error('Failed to apply all:', error);
+    } finally {
+      setIsApplying(false);
     }
   };
 
@@ -326,34 +328,7 @@ export default function AgentChat() {
             </div>
           )}
 
-          {/* Pending Diffs Summary */}
-          {Object.keys(state.pendingDiffs).length > 0 && (
-            <div className="bg-blue-500/10 border border-blue-500/50 rounded-lg p-4 mb-4">
-              <div className="flex items-center gap-2 mb-3">
-                <FileDiff size={16} className="text-blue-400" />
-                <span className="text-blue-400 font-semibold">
-                  Changes Ready for Review ({Object.keys(state.pendingDiffs).length})
-                </span>
-              </div>
-              <p className="text-sm text-gray-300 mb-3">
-                Diffs are opened as editor tabs. Review and edit them, then apply from the tab or use Apply/Discard All.
-              </p>
-                <div className="flex gap-2 pt-2 border-t border-gray-700">
-                  <button
-                    onClick={() => handleApplyAll(true)}
-                    className="flex-1 px-4 py-2 bg-green-500 hover:bg-green-400 text-white font-semibold rounded transition-colors"
-                  >
-                    Approve All
-                  </button>
-                  <button
-                    onClick={() => handleApplyAll(false)}
-                    className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-400 text-white font-semibold rounded transition-colors"
-                  >
-                    Discard All
-                  </button>
-                </div>
-            </div>
-          )}
+
 
           {/* Build Status */}
           {state.buildStatus !== 'idle' && (
@@ -471,6 +446,38 @@ export default function AgentChat() {
             </div>
           )}
         </div>
+
+       {/* Pending Diffs Summary */}
+                  {Object.keys(state.pendingDiffs).length > 0 && (
+            <div className="bg-blue-500/10 border border-blue-500/50 rounded-lg p-4 mb-4">
+              <div className="flex items-center gap-2 mb-3">
+                <FileDiff size={16} className="text-blue-400" />
+                <span className="text-blue-400 font-semibold">
+                  Changes Ready for Review ({Object.keys(state.pendingDiffs).length})
+                </span>
+              </div>
+              <p className="text-sm text-gray-300 mb-3">
+                Diffs are opened as editor tabs. Review and edit them, then apply from the tab or use Apply/Discard All.
+              </p>
+                <div className="flex gap-2 pt-2 border-t border-gray-700">
+                  <button
+                    onClick={() => handleApplyAll(true)}
+                    disabled={isApplying || isStreaming}
+                    className="flex-1 px-4 py-2 bg-green-500 hover:bg-green-400 text-white font-semibold rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isApplying ? 'Applying…' : 'Approve All'}
+                  </button>
+                  <button
+                    onClick={() => handleApplyAll(false)}
+                    disabled={isApplying || isStreaming}
+                    className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-400 text-white font-semibold rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Discard All
+                  </button>
+                </div>
+            </div>
+          )}
+
 
         {/* Input Area */}
         <div className="p-4 border-t border-gray-800 bg-gray-950/95 backdrop-blur">

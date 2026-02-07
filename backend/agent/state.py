@@ -76,6 +76,7 @@ class AgentState(TypedDict, total=False):
     awaiting_approval: bool  # Graph is paused waiting for approval
     approved_files: List[str]  # Files that have been approved
     pending_approval_files: List[str]  # Files waiting for approval
+    resume_from_approval: bool  # When True, entry router goes to coding (continue after user approve/discard)
     thinking_log: List[str]  # Agent's reasoning at each step
     final_summary: str  # Final explanation (Cursor-style)
     terminal_output: List[str]  # Terminal output lines for streaming

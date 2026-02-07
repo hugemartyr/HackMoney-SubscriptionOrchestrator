@@ -17,9 +17,7 @@ def get_llm(**kwargs: Any):
     from config import settings
     from langchain_openai import ChatOpenAI
     from pydantic import SecretStr
-    
-    logger.info(f"Using OpenRouter model: {settings.OPENROUTER_MODEL}")
-    logger.info(f"Using OpenRouter API key: {settings.OPENROUTER_API_KEY}")
+
 
     api_key = (
         SecretStr(settings.OPENROUTER_API_KEY)

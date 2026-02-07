@@ -92,22 +92,37 @@ export async function approveDiff(file: string, approved: boolean, runId?: strin
   }
 }
 
+/**
+ * Apply or discard all pending diffs. When runId is set and andResume is true,
+ * the backend also resumes the LangGraph workflow and returns an SSE stream;
+ * in that case the return value is the Response (consume its body as SSE).
+ * Otherwise returns JSON { ok, applied }.
+ */
 export async function applyAllDiffs(
   approved: boolean,
   runId?: string | null,
-): Promise<{ ok: boolean; applied: number }> {
+  andResume: boolean = true,
+): Promise<{ ok: boolean; applied: number } | Response> {
   const response = await fetch(`${API_BASE_URL}/api/yellow-agent/apply`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ runId: runId || null, approved }),
+    body: JSON.stringify({
+      runId: runId ?? null,
+      approved,
+      andResume,
+    }),
   });
 
   if (!response.ok) {
     throw new Error('Failed to apply/reject all diffs');
   }
 
+  // When andResume is true the backend may return an SSE stream (even if runId was null; backend resolves it).
+  if (andResume) {
+    return response;
+  }
   return response.json();
 }
 

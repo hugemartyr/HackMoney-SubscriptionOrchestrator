@@ -50,7 +50,6 @@ def build_planner_prompt(prompt: str, context: str) -> List[Dict[str, str]]:
 def build_coder_prompt(
     user_query: str,
     plan: str,
-    rules: str,
     rag_context: str,
     file_context: str,
     sdk_version: str,
@@ -60,15 +59,11 @@ def build_coder_prompt(
     system = (
         "You are a senior engineer helping integrate Yellow Network SDK into an existing project.\n"
         "Analyze the codebase, the plan, the integration rules, and the provided documentation to propose specific code changes.\n\n"
-        "Return ONLY a single JSON object. You may use either format:\n\n"
-        "Format A (search/replace, preferred for small edits):\n"
-        '  { "changes": [ { "file": "path/to/file.ext", "search": "exact unique string to find", "replace": "replacement string" } ] }\n\n'
-        "Format B (full-file diffs):\n"
+        "Return ONLY a single JSON object. Use the format:\n\n"
         '  { "diffs": [ { "file": "path/to/file.ext", "oldCode": "complete original content", "newCode": "complete modified content" } ] }\n\n'
         "Rules:\n"
         "- For search/replace: use a unique, exact search string (multiple lines ok); replace only what is necessary.\n"
         "- For diffs: include the COMPLETE file content in both oldCode and newCode.\n"
-        "- Only propose changes to files that need Yellow SDK integration or that are listed in the plan.\n"
         "- Be precise and maintain existing code style, indentation, and formatting.\n"
         "- Return empty changes/diffs array if no changes are needed.\n"
         "- FOLLOW THE INTEGRATION RULES (THE CONSTITUTION) STRICTLY.\n"
@@ -88,8 +83,7 @@ def build_coder_prompt(
         f"{user_query}\n\n"
         "=== PLAN (integration plan) ===\n"
         f"{plan}\n\n"
-        "=== THE CONSTITUTION (integration rules – follow strictly) ===\n"
-        f"{rules}\n\n"
+    
         "=== KNOWLEDGE BASE / DOCS (RAG context) ===\n"
         f"{rag_context}\n\n"
         "=== REPOSITORY FILES (current state; includes tool-proposed content where applicable) ===\n"

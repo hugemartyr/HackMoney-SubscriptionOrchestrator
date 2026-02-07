@@ -34,6 +34,11 @@ def _resolve_run_id(runId: Optional[str]) -> Optional[str]:
     return resolved
 
 
+def get_last_run_id() -> Optional[str]:
+    """Return the run id that last had a pending diff set (for resume when client omits runId)."""
+    return _LAST_RUN_ID
+
+
 async def set_pending_diff(runId: str, file: str, oldCode: str, newCode: str) -> PendingDiff:
     """
     Store/replace the pending diff for a given file under a runId (single-session, in-memory).

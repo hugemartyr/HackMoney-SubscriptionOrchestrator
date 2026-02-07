@@ -9,12 +9,14 @@ interface DiffViewProps {
   diff: DiffData;
   onClose: () => void;
   onApproved: () => void;
+  /** Run ID from the agent stream; required for backend to resolve the pending diff. */
+  runId?: string | null;
 }
 
-export default function DiffView({ diff, onClose, onApproved }: DiffViewProps) {
+export default function DiffView({ diff, onClose, onApproved, runId }: DiffViewProps) {
   const handleApprove = async () => {
     try {
-      await approveDiff(diff.file, true);
+      await approveDiff(diff.file, true, runId);
       onApproved();
       onClose();
     } catch (error) {
@@ -24,8 +26,8 @@ export default function DiffView({ diff, onClose, onApproved }: DiffViewProps) {
 
   const handleReject = async () => {
     try {
-      await approveDiff(diff.file, false);
-      onApproved(); // Remove from pending list
+      await approveDiff(diff.file, false, runId);
+      onApproved();
       onClose();
     } catch (error) {
       console.error('Failed to reject diff:', error);
