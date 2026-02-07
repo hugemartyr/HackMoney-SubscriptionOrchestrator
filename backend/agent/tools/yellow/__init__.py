@@ -5,6 +5,7 @@ from .yellow_network_workflow_tool import YellowNetworkWorkflowTool
 from .yellow_next_multi_party_full_lifecycle import YellowNextMultiPartyFullLifecycle, detect_multiparty_requirement
 from .yellow_versioned_integration_tool import YellowVersionedIntegrationTool, detect_versioned_integration_requirement
 from .yellow_tip_tool import YellowTipTool, detect_tip_requirement
+from .yellow_deposit_tool import YellowDepositTool, detect_deposit_requirement
 
 __all__ = [
     "YellowInitializerTool",
@@ -16,4 +17,6 @@ __all__ = [
     "detect_versioned_integration_requirement",
     "YellowTipTool",
     "detect_tip_requirement",
+    "YellowDepositTool",
+    "detect_deposit_requirement",
 ]

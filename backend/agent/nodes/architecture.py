@@ -9,10 +9,12 @@ from agent.tools.yellow import (
     YellowNextMultiPartyFullLifecycle,
     YellowVersionedIntegrationTool,
     YellowTipTool,
+    YellowDepositTool,
     detect_yellow_requirement,
     detect_multiparty_requirement,
     detect_versioned_integration_requirement,
     detect_tip_requirement,
+    detect_deposit_requirement,
 )
 from typing import Any
 from logging import getLogger
@@ -74,17 +76,22 @@ async def parse_yellow_node(state: AgentState) -> AgentState:
     if needs_tip is None:
         needs_tip = detect_tip_requirement(prompt)
 
+    needs_deposit = state.get("needs_deposit")
+    if needs_deposit is None:
+        needs_deposit = detect_deposit_requirement(prompt)
+
     state.update({
         "needs_yellow": needs_yellow,
         "needs_simple_channel": needs_simple,
         "needs_multiparty": needs_multiparty,
         "needs_versioned": needs_versioned,
         "needs_tip": needs_tip,
+        "needs_deposit": needs_deposit,
         "prefer_yellow_tools": needs_yellow,
     })
 
     state["thinking_log"] = state.get("thinking_log", []) + [
-        f"Parsed Yellow requirements: yellow={needs_yellow}, simple={needs_simple}, multiparty={needs_multiparty}, versioned={needs_versioned}, tip={needs_tip}"
+        f"Parsed Yellow requirements: yellow={needs_yellow}, simple={needs_simple}, multiparty={needs_multiparty}, versioned={needs_versioned}, tip={needs_tip}, deposit={needs_deposit}"
     ]
 
     return state
@@ -228,4 +235,28 @@ async def yellow_tip_node(state: AgentState) -> AgentState:
     except Exception as e:
         state["yellow_tip_status"] = "failed"
         state["thinking_log"] = state.get("thinking_log", []) + [f"Yellow tip error: {str(e)}"]
+        return state
+
+
+async def yellow_deposit_node(state: AgentState) -> AgentState:
+    """
+    Inject Yellow deposit utility into the project.
+    Should be called after yellow_init and yellow_workflow have run.
+    """
+    repo_path = state.get("repo_path", "/home/user/app")
+    if not repo_path:
+        state["yellow_deposit_status"] = "skipped"
+        state["thinking_log"] = state.get("thinking_log", []) + ["Yellow deposit: no repo_path provided"]
+        return state
+
+    try:
+        deposit_tool = YellowDepositTool()
+        result = await deposit_tool.invoke(state)
+        state.update(result)
+        _append_tool_diffs(state, result.get("yellow_tool_diffs", []))
+        return state
+
+    except Exception as e:
+        state["yellow_deposit_status"] = "failed"
+        state["thinking_log"] = state.get("thinking_log", []) + [f"Yellow deposit error: {str(e)}"]
         return state

@@ -1,81 +1,203 @@
-import subprocess
+# Yellow Sandbox Deposit Tool
+# Refactored to match LangGraph workflow patterns
+
+import json
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel
+from langchain_core.callbacks import AsyncCallbackHandler
+from agent.tools.yellow.diff_utils import write_file_with_diff
+
+
+def detect_deposit_requirement(prompt: str) -> bool:
+    """Detect whether the user's prompt indicates deposit functionality is required."""
+    keywords = [
+        "deposit",
+        "custody",
+        "fund",
+        "add funds",
+        "top up",
+        "top-up",
+        "deposit usdc",
+        "custody contract",
+        "nitrolite deposit",
+    ]
+    pl = (prompt or "").lower()
+    return any(k in pl for k in keywords)
+
+
+class YellowDepositToolInput(BaseModel):
+    """Input schema for the Yellow deposit tool."""
+    repo_path: str
+
+
+class YellowDepositToolOutput(BaseModel):
+    """Output schema for tool responses."""
+    success: bool
+    files_modified: List[str]
+    diffs: List[Dict[str, Any]] = []
+    message: str
+    error: Optional[str] = None
 
 
 class YellowDepositTool:
     """
-    Deposits USDC to Nitrolite custody contract.
+    Yellow Sandbox Deposit Tool (LangGraph Compatible)
 
     - Injects src/lib/yellow/deposit.ts
     - Supports dynamic viem chain resolution
-    - Defaults to Base if chainId not provided
-    - Returns structured JSON
+    - Designed to be called after yellow_init and yellow_workflow
+    - Returns structured output with diffs for frontend display
+
+    Integration:
+    - Called by the "yellow_deposit" node in graph.py
+    - Receives: AgentState with repo_path
+    - Returns: Updated state with deposit tool injection results
     """
 
     name = "yellow_deposit"
-    description = "Injects and executes Yellow custody deposit tool."
+    description = "Injects Yellow custody deposit utility (deposit.ts) into the project."
 
-    # ---------------------------------------------------------
-    # ENTRY
-    # ---------------------------------------------------------
+    def __init__(self, stream_callback: Optional[AsyncCallbackHandler] = None):
+        """Initialize with optional stream callback for SSE emission."""
+        self.stream_callback = stream_callback
 
-    def run(
-        self,
-        repo_path: str,
-        amount: str,
-        chain_id: int | None = None,
-        execute: bool = True,
-    ) -> Dict[str, Any]:
+    async def emit_event(self, event_type: str, **kwargs) -> None:
+        """Emit SSE event through callback."""
+        if self.stream_callback:
+            await self.stream_callback.on_tool_start(
+                {"name": event_type},
+                input_str=json.dumps(kwargs)
+            )
 
-        repo = Path(repo_path).resolve()
-        deposit_file = repo / "src" / "lib" / "yellow" / "deposit.ts"
+    async def async_run(self, repo_path: str) -> YellowDepositToolOutput:
+        """
+        Async entry point for LangGraph integration.
+        Injects deposit.ts file and returns structured response.
+        """
+        try:
+            repo = Path(repo_path).resolve()
 
-        if not repo.exists():
-            return {"success": False, "error": "Repo not found"}
+            if not repo.exists():
+                return YellowDepositToolOutput(
+                    success=False,
+                    files_modified=[],
+                    message="Repository path does not exist",
+                    error=f"Path not found: {repo_path}"
+                )
 
-        deposit_file.parent.mkdir(parents=True, exist_ok=True)
+            if not (repo / "package.json").exists():
+                return YellowDepositToolOutput(
+                    success=False,
+                    files_modified=[],
+                    message="Not a Node.js project",
+                    error="Missing package.json"
+                )
 
-        deposit_file.write_text(self._deposit_ts_code())
+            # Inject deposit.ts
+            files_modified, diffs = self._inject_deposit_file(repo)
 
-        if not execute:
+            return YellowDepositToolOutput(
+                success=True,
+                files_modified=files_modified,
+                diffs=diffs,
+                message="Deposit utility (deposit.ts) injected successfully"
+            )
+
+        except Exception as e:
+            return YellowDepositToolOutput(
+                success=False,
+                files_modified=[],
+                message="Failed to inject deposit utility",
+                error=str(e)
+            )
+
+    async def invoke(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        LangGraph node invocation.
+
+        Input state:
+        - repo_path: str
+        - needs_deposit: bool (optional, detected from prompt if not set)
+        - prompt: str
+
+        Output state:
+        - yellow_deposit_status: str
+        - yellow_tool_diffs: List[Dict]
+        - thinking_log: List[str]
+        """
+        repo_path = state.get("repo_path")
+        prompt = state.get("prompt", "")
+
+        # Respect pre-computed flag if present, else detect from prompt
+        requires_deposit = state.get("needs_deposit")
+        if requires_deposit is None:
+            requires_deposit = detect_deposit_requirement(prompt)
+
+        if not requires_deposit:
+            await self.emit_event("thought", content="Deposit functionality not required by prompt; skipping")
             return {
-                "success": True,
-                "message": "deposit.ts injected successfully"
+                "yellow_deposit_status": "skipped",
+                "thinking_log": state.get("thinking_log", []) + ["Skipped Yellow deposit tool (not required)"]
+            }
+
+        if not repo_path:
+            error_msg = "repo_path not provided in state"
+            await self.emit_event("thought", content=f"❌ Error: {error_msg}")
+            return {
+                "yellow_deposit_status": "failed",
+                "thinking_log": state.get("thinking_log", []) + [f"Yellow deposit failed: {error_msg}"]
             }
 
         try:
-            cmd = ["npx", "tsx", "src/lib/yellow/deposit.ts", amount]
-            if chain_id:
-                cmd.append(str(chain_id))
+            # Emit start event
+            await self.emit_event("tool", name=self.name, status="running")
+            await self.emit_event("thought", content="🚀 Injecting Yellow deposit utility...")
 
-            result = subprocess.run(
-                cmd,
-                cwd=repo,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
+            # Execute injection
+            result = await self.async_run(repo_path)
 
+            # Emit completion event
+            if result.success:
+                await self.emit_event("thought", content=f"✅ {result.message}")
+            else:
+                await self.emit_event("thought", content=f"❌ {result.message}: {result.error}")
+
+            # Return updated state
             return {
-                "success": True,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
+                "yellow_deposit_status": "success" if result.success else "failed",
+                "yellow_tool_diffs": result.diffs,
+                "thinking_log": state.get("thinking_log", []) + [result.message]
             }
 
         except Exception as e:
+            error_msg = f"Yellow deposit tool failed: {str(e)}"
+            await self.emit_event("thought", content=f"❌ {error_msg}")
             return {
-                "success": False,
-                "error": str(e),
+                "yellow_deposit_status": "failed",
+                "thinking_log": state.get("thinking_log", []) + [error_msg]
             }
 
     # ---------------------------------------------------------
-    # TS CODE INJECTED
+    # Internal helpers
     # ---------------------------------------------------------
 
+    def _inject_deposit_file(self, repo: Path) -> tuple[List[str], List[Dict[str, Any]]]:
+        """Inject deposit.ts file into src/lib/yellow/ directory."""
+        deposit_dir = repo / "src" / "lib" / "yellow"
+        deposit_dir.mkdir(parents=True, exist_ok=True)
+
+        deposit_file_rel = "src/lib/yellow/deposit.ts"
+        deposit_code = self._deposit_ts_code()
+
+        diff = write_file_with_diff(repo, deposit_file_rel, deposit_code)
+        diffs = [diff] if diff else []
+
+        return [deposit_file_rel], diffs
+
     def _deposit_ts_code(self) -> str:
-        return r'''
-import { NitroliteClient, WalletStateSigner } from "@erc7824/nitrolite";
+        return r'''import { NitroliteClient, WalletStateSigner } from "@erc7824/nitrolite";
 import { createWalletClient, formatUnits, http, parseUnits } from "viem";
 import { mnemonicToAccount } from "viem/accounts";
 import * as chains from "viem/chains";
@@ -89,8 +211,8 @@ import "dotenv/config";
 
 const USDC_MAP: Record<number, string> = {
   8453: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // Base Mainnet
-  84532: "0x0000000000000000000000000000000000000000", // Base Sepolia (replace)
-  11155111: "0x0000000000000000000000000000000000000000", // Sepolia (replace)
+  84532: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // Base Sepolia (replace)
+  11155111: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // Sepolia (replace)
 };
 
 // --------------------------------------
@@ -177,22 +299,5 @@ export async function deposit(amount: string, chainId?: number) {
   };
 }
 
-// --------------------------------------
-// CLI SUPPORT
-// --------------------------------------
-
-if (require.main === module) {
-
-  const [amount, chainId] = process.argv.slice(2);
-
-  deposit(amount, chainId ? Number(chainId) : undefined)
-    .then((res) => {
-      console.log(JSON.stringify(res, null, 2));
-      process.exit(0);
-    })
-    .catch((err) => {
-      console.error(JSON.stringify({ success: false, error: err.message }));
-      process.exit(1);
-    });
-}
+export default deposit;
 '''

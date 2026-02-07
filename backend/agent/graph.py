@@ -130,16 +130,19 @@ def route_after_yellow(state: AgentState) -> Literal["write_code", "await_approv
         return "await_approval"
     return "write_code"
 
-def route_after_workflow(state: AgentState) -> Literal["write_code", "yellow_versioned", "yellow_tip"]:
+def route_after_workflow(state: AgentState) -> Literal["write_code", "yellow_versioned", "yellow_tip", "yellow_deposit"]:
     """
     If the Yellow workflow tool indicates that versioned integration is needed, route there.
     If tipping is needed (and versioned is not), route to yellow_tip.
+    If deposit is needed, route to yellow_deposit.
     Otherwise, proceed with normal code generation.
     """
     if state.get("needs_versioned"):
         return "yellow_versioned"
     if state.get("needs_tip"):
         return "yellow_tip"
+    if state.get("needs_deposit"):
+        return "yellow_deposit"
     return "write_code"
 
 def route_after_init(state: AgentState) -> Literal["yellow_workflow", "yellow_versioned"]:
@@ -153,15 +156,11 @@ def route_after_init(state: AgentState) -> Literal["yellow_workflow", "yellow_ve
         return "yellow_versioned"
     return "yellow_workflow"  # Default to workflow if no clear preference  
 
-def route_after_yellow(state: AgentState) -> Literal["yellow_multiparty", "escrow", "subscriber", "settlement", "unknown"]:
+def route_after_yellow(state: AgentState) -> Literal["yellow_multiparty"]:
     """
-    After Yellow versioned integration, route based on specific integration type if indicated.
-    If no clear preference, route to a generic Yellow multiparty flow.
+    After Yellow versioned integration, route to multiparty flow.
     """
-    if state.get("needs_multiparty"):
-        return "yellow_multiparty"
-    # Future: could have more specific flows for escrow/subscriber/settlement if we see enough demand for them.
-    return "yellow_multiparty"  # Default to multiparty if no clear preference      
+    return "yellow_multiparty"      
 
 # Build the graph
 workflow = StateGraph(AgentState)
@@ -182,6 +181,7 @@ workflow.add_node("yellow_workflow", nodes.yellow_workflow_node)
 workflow.add_node("yellow_multiparty", nodes.yellow_multiparty_node)
 workflow.add_node("yellow_versioned", nodes.yellow_versioned_node)
 workflow.add_node("yellow_tip", nodes.yellow_tip_node)
+workflow.add_node("yellow_deposit", nodes.yellow_deposit_node)
 workflow.add_node("await_approval", nodes.await_approval_node)
 workflow.add_node("coding", nodes.coding_node)
 workflow.add_node("build", nodes.build_node)
@@ -239,18 +239,16 @@ workflow.add_conditional_edges(
         "write_code": "write_code",
         "yellow_versioned": "yellow_versioned",
         "yellow_tip": "yellow_tip",
+        "yellow_deposit": "yellow_deposit",
     }
 )
 workflow.add_edge("yellow_tip", "write_code")
+workflow.add_edge("yellow_deposit", "write_code")
 workflow.add_conditional_edges(
     "yellow_versioned",
     route_after_yellow,
     {
         "yellow_multiparty": "yellow_multiparty",
-        "escrow": "escrow",
-        "subscriber": "subscriber",
-        "settlement": "settlement",
-        "unknown": "unknown",  # Default to write_code if no clear preference
     }
 )
 workflow.add_edge("write_code", "await_approval")

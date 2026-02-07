@@ -100,6 +100,8 @@ async def run_agent(runId: str, prompt: str) -> AsyncIterator[Dict[str, Any]]:
                     yield {"type": "thought", "runId": runId, "content": "Creating versioned integration layer..."}
                 elif name == "yellow_tip":
                     yield {"type": "thought", "runId": runId, "content": "Injecting tipping utility..."}
+                elif name == "yellow_deposit":
+                    yield {"type": "thought", "runId": runId, "content": "Injecting deposit utility..."}
                 elif name == "write_code":
                     yield {"type": "thought", "runId": runId, "content": "Generating code changes..."}
                 elif name == "coding":

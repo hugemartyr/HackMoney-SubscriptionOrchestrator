@@ -35,6 +35,7 @@ class AgentState(TypedDict, total=False):
     error_count: int  # Track retry attempts
     escalation_needed: bool  # Flag for human intervention
     needs_tip: bool  # Whether tipping functionality is needed
+    needs_deposit: bool  # Whether deposit functionality is needed
     research_queries: List[str]  # Track research performed
     analyzed_imports: Dict[str, Any]  # Import analysis results
     doc_context: str  # Retrieved documentation context

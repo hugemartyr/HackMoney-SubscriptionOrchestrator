@@ -14,6 +14,7 @@ from .architecture import (
     yellow_multiparty_node,
     yellow_versioned_node,
     yellow_tip_node,
+    yellow_deposit_node,
     write_code_node,
 )
 from .validation import (
