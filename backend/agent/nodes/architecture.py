@@ -8,9 +8,11 @@ from agent.tools.yellow import (
     YellowNetworkWorkflowTool,
     YellowNextMultiPartyFullLifecycle,
     YellowVersionedIntegrationTool,
+    YellowTipTool,
     detect_yellow_requirement,
     detect_multiparty_requirement,
     detect_versioned_integration_requirement,
+    detect_tip_requirement,
 )
 from typing import Any
 from logging import getLogger
@@ -68,16 +70,21 @@ async def parse_yellow_node(state: AgentState) -> AgentState:
     if needs_versioned is None:
         needs_versioned = detect_versioned_integration_requirement(prompt) or needs_multiparty
 
+    needs_tip = state.get("needs_tip")
+    if needs_tip is None:
+        needs_tip = detect_tip_requirement(prompt)
+
     state.update({
         "needs_yellow": needs_yellow,
         "needs_simple_channel": needs_simple,
         "needs_multiparty": needs_multiparty,
         "needs_versioned": needs_versioned,
+        "needs_tip": needs_tip,
         "prefer_yellow_tools": needs_yellow,
     })
 
     state["thinking_log"] = state.get("thinking_log", []) + [
-        f"Parsed Yellow requirements: yellow={needs_yellow}, simple={needs_simple}, multiparty={needs_multiparty}, versioned={needs_versioned}"
+        f"Parsed Yellow requirements: yellow={needs_yellow}, simple={needs_simple}, multiparty={needs_multiparty}, versioned={needs_versioned}, tip={needs_tip}"
     ]
 
     return state
@@ -197,4 +204,28 @@ async def yellow_versioned_node(state: AgentState) -> AgentState:
     except Exception as e:
         state["yellow_versioned_status"] = "failed"
         state["thinking_log"] = state.get("thinking_log", []) + [f"Versioned integration error: {str(e)}"]
+        return state
+
+
+async def yellow_tip_node(state: AgentState) -> AgentState:
+    """
+    Inject Yellow tipping utility into the project.
+    Should be called after yellow_init and yellow_workflow have run.
+    """
+    repo_path = state.get("repo_path", "/home/user/app")
+    if not repo_path:
+        state["yellow_tip_status"] = "skipped"
+        state["thinking_log"] = state.get("thinking_log", []) + ["Yellow tip: no repo_path provided"]
+        return state
+
+    try:
+        tip_tool = YellowTipTool()
+        result = await tip_tool.invoke(state)
+        state.update(result)
+        _append_tool_diffs(state, result.get("yellow_tool_diffs", []))
+        return state
+
+    except Exception as e:
+        state["yellow_tip_status"] = "failed"
+        state["thinking_log"] = state.get("thinking_log", []) + [f"Yellow tip error: {str(e)}"]
         return state

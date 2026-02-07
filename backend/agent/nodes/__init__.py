@@ -13,6 +13,7 @@ from .architecture import (
     yellow_workflow_node,
     yellow_multiparty_node,
     yellow_versioned_node,
+    yellow_tip_node,
     write_code_node,
 )
 from .validation import (

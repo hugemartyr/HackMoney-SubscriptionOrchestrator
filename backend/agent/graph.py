@@ -130,13 +130,16 @@ def route_after_yellow(state: AgentState) -> Literal["write_code", "await_approv
         return "await_approval"
     return "write_code"
 
-def route_after_workflow(state: AgentState) -> Literal["write_code", "yellow_versioned"]:
+def route_after_workflow(state: AgentState) -> Literal["write_code", "yellow_versioned", "yellow_tip"]:
     """
     If the Yellow workflow tool indicates that versioned integration is needed, route there.
+    If tipping is needed (and versioned is not), route to yellow_tip.
     Otherwise, proceed with normal code generation.
     """
     if state.get("needs_versioned"):
         return "yellow_versioned"
+    if state.get("needs_tip"):
+        return "yellow_tip"
     return "write_code"
 
 def route_after_init(state: AgentState) -> Literal["yellow_workflow", "yellow_versioned"]:
@@ -178,6 +181,7 @@ workflow.add_node("yellow_init", nodes.yellow_init_node)
 workflow.add_node("yellow_workflow", nodes.yellow_workflow_node)
 workflow.add_node("yellow_multiparty", nodes.yellow_multiparty_node)
 workflow.add_node("yellow_versioned", nodes.yellow_versioned_node)
+workflow.add_node("yellow_tip", nodes.yellow_tip_node)
 workflow.add_node("await_approval", nodes.await_approval_node)
 workflow.add_node("coding", nodes.coding_node)
 workflow.add_node("build", nodes.build_node)
@@ -234,8 +238,10 @@ workflow.add_conditional_edges(
     {
         "write_code": "write_code",
         "yellow_versioned": "yellow_versioned",
+        "yellow_tip": "yellow_tip",
     }
 )
+workflow.add_edge("yellow_tip", "write_code")
 workflow.add_conditional_edges(
     "yellow_versioned",
     route_after_yellow,
