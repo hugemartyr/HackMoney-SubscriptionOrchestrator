@@ -42,7 +42,27 @@ def start_agent_node(state: AgentState) -> AgentState:
         thinking_log = state.get("thinking_log") or [],
         final_summary = state.get("final_summary") or "",
         terminal_output = state.get("terminal_output") or [],
-        error_analysis = state.get("error_analysis") or {}
+        error_analysis = state.get("error_analysis") or {},
+        yellow_initialized = state.get("yellow_initialized") or False,
+        yellow_framework = state.get("yellow_framework") or "",
+        yellow_version = state.get("yellow_version") or "",
+        yellow_dependencies = state.get("yellow_dependencies") or [],
+        yellow_devDependencies = state.get("yellow_devDependencies") or [],
+        yellow_scripts = state.get("yellow_scripts") or {},
+        yellow_engines = state.get("yellow_engines") or {},
+        yellow_author = state.get("yellow_author") or "",
+        yellow_license = state.get("yellow_license") or "",
+        yellow_repository = state.get("yellow_repository") or "",
+        yellow_bugs = state.get("yellow_bugs") or "",
+        needs_yellow = bool(state.get("needs_yellow", False)),
+        needs_simple_channel = bool(state.get("needs_simple_channel", False)),
+        needs_multiparty = bool(state.get("needs_multiparty", False)),
+        needs_versioned = bool(state.get("needs_versioned", False)),
+        prefer_yellow_tools = bool(state.get("prefer_yellow_tools", False)),
+        yellow_init_status = state.get("yellow_init_status") or "",
+        yellow_workflow_status = state.get("yellow_workflow_status") or "",
+        yellow_versioned_status = state.get("yellow_versioned_status") or "",
+        yellow_multiparty_status = state.get("yellow_multiparty_status") or "",
     )
 
 # Routing functions
@@ -121,14 +141,6 @@ def check_memory(state: AgentState) -> Literal["retry", "escalate"]:
         return "escalate"
     return "retry"
 
-def route_after_yellow(state: AgentState) -> Literal["write_code", "await_approval"]:
-    """
-    Prefer Yellow tool workflow for Yellow-specific prompts.
-    If Yellow is required, skip generic LLM codegen and proceed to approval/build.
-    """
-    if state.get("needs_yellow"):
-        return "await_approval"
-    return "write_code"
 
 def route_after_workflow(state: AgentState) -> Literal["write_code", "yellow_versioned", "yellow_tip", "yellow_deposit"]:
     """
@@ -175,7 +187,6 @@ workflow.add_node("research", nodes.research_node)
 workflow.add_node("update_memory", nodes.update_memory_node)
 workflow.add_node("architect", nodes.architect_node)
 workflow.add_node("write_code", nodes.write_code_node)
-workflow.add_node("parse_yellow", nodes.parse_yellow_node)
 workflow.add_node("yellow_init", nodes.yellow_init_node)
 workflow.add_node("yellow_workflow", nodes.yellow_workflow_node)
 workflow.add_node("yellow_multiparty", nodes.yellow_multiparty_node)
@@ -215,9 +226,8 @@ workflow.add_edge("retrieve_docs", "update_memory")
 workflow.add_edge("research", "update_memory")
 workflow.add_edge("update_memory", "context_check")
 
-# Main flow (with Yellow parsing & conditional tools)
-workflow.add_edge("architect", "parse_yellow")
-workflow.add_edge("parse_yellow", "yellow_init")
+# Main flow (architect sets plan + Yellow flags; then yellow_init)
+workflow.add_edge("architect", "yellow_init")
 
 workflow.add_conditional_edges(
     "yellow_init",
@@ -227,10 +237,6 @@ workflow.add_conditional_edges(
         "yellow_versioned": "yellow_versioned",
     }
 )
-
-
-
-workflow.add_edge("yellow_versioned", "yellow_multiparty")
 
 workflow.add_conditional_edges(
     "yellow_workflow",
@@ -251,6 +257,7 @@ workflow.add_conditional_edges(
         "yellow_multiparty": "yellow_multiparty",
     }
 )
+workflow.add_edge("yellow_multiparty", "write_code")
 workflow.add_edge("write_code", "await_approval")
 
 # HITL: await_approval uses interrupt() to pause; resume continues to coding

@@ -55,8 +55,23 @@ async def generate_plan(prompt: str, files: Dict[str, str]) -> dict:
     version = obj.get("yellow_sdk_version")
     if not isinstance(notes, str) or not isinstance(version, str):
         raise RuntimeError("Failed to generate plan from LLM. Invalid response structure.")
-    
-    return {"notes_markdown": notes, "yellow_sdk_version": version}
+
+    def _bool(key: str) -> bool:
+        v = obj.get(key)
+        if v is None:
+            return False
+        return bool(v) if isinstance(v, bool) else str(v).lower() in ("true", "1", "yes")
+
+    return {
+        "notes_markdown": notes,
+        "yellow_sdk_version": version,
+        "needs_yellow": _bool("needs_yellow"),
+        "needs_simple_channel": _bool("needs_simple_channel"),
+        "needs_multiparty": _bool("needs_multiparty"),
+        "needs_versioned": _bool("needs_versioned"),
+        "needs_tip": _bool("needs_tip"),
+        "needs_deposit": _bool("needs_deposit"),
+    }
 
 async def generate_architecture(prompt: str, files: Dict[str, str], research_notes: str = "") -> dict:
     """

@@ -40,6 +40,38 @@ class AgentState(TypedDict, total=False):
     analyzed_imports: Dict[str, Any]  # Import analysis results
     doc_context: str  # Retrieved documentation context
     
+    # Yellow routing flags (set by architect_node from LLM)
+    needs_yellow: bool
+    needs_simple_channel: bool
+    needs_multiparty: bool
+    needs_versioned: bool
+    prefer_yellow_tools: bool
+    needs_yellow_tools: bool
+    needs_simple_channel_tools: bool
+    needs_multiparty_tools: bool
+    needs_versioned_tools: bool
+    needs_tip_tools: bool
+    needs_deposit_tools: bool
+    # Yellow tool status (set by tools/nodes)
+    yellow_init_status: str  # success | failed | skipped
+    yellow_workflow_status: str
+    yellow_versioned_status: str
+    yellow_multiparty_status: str
+    yellow_tip_status: str
+    yellow_deposit_status: str
+
+    yellow_initialized: bool  # Whether the Yellow SDK has been initialized
+    yellow_framework: str  # The framework detected for the Yellow SDK
+    yellow_version: str  # The version of the Yellow SDK
+    yellow_dependencies: List[str]  # The dependencies of the Yellow SDK
+    yellow_devDependencies: List[str]  # The devDependencies of the Yellow SDK
+    yellow_scripts: Dict[str, str]  # The scripts of the Yellow SDK
+    yellow_engines: Dict[str, str]  # The engines of the Yellow SDK
+    yellow_author: str  # The author of the Yellow SDK
+    yellow_license: str  # The license of the Yellow SDK
+    yellow_repository: str  # The repository of the Yellow SDK
+    yellow_bugs: str  # The bugs of the Yellow SDK
+
     # HITL & Thinking fields
     awaiting_approval: bool  # Graph is paused waiting for approval
     approved_files: List[str]  # Files that have been approved

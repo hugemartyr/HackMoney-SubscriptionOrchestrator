@@ -3,143 +3,79 @@ from __future__ import annotations
 from agent.state import AgentState
 from agent.llm.planning import generate_plan
 from agent.llm.coding import write_code
-from agent.tools.yellow import (
-    YellowInitializerTool,
-    YellowNetworkWorkflowTool,
-    YellowNextMultiPartyFullLifecycle,
-    YellowVersionedIntegrationTool,
-    YellowTipTool,
-    YellowDepositTool,
-    detect_yellow_requirement,
-    detect_multiparty_requirement,
-    detect_versioned_integration_requirement,
-    detect_tip_requirement,
-    detect_deposit_requirement,
-)
+
+from agent.tools.yellow.yellow_initialiser import YellowInitializerTool
+from agent.tools.yellow.yellow_network_workflow_tool import YellowNetworkWorkflowTool
+from agent.tools.yellow.yellow_next_multi_party_full_lifecycle import YellowNextMultiPartyFullLifecycle
+from agent.tools.yellow.yellow_versioned_integration_tool import YellowVersionedIntegrationTool
+from agent.tools.yellow.yellow_tip_tool import YellowTipTool
+from agent.tools.yellow.yellow_deposit_tool import YellowDepositTool
+
 from typing import Any
 from logging import getLogger
 
 logger = getLogger(__name__)
 
-def _merge_diffs(tool_diffs: list[dict[str, str]], llm_diffs: list[dict[str, str]]) -> list[dict[str, str]]:
-    tool_files = {d.get("file") for d in tool_diffs if d.get("file")}
-    merged = [d for d in tool_diffs if d.get("file")]
-    merged.extend([d for d in llm_diffs if d.get("file") not in tool_files])
-    return merged
-
-
-def _append_tool_diffs(state: AgentState, new_diffs: list[dict]) -> None:
-    if not new_diffs:
-        return
-    tool_diffs = state.get("tool_diffs", []) or []
-    tool_diffs.extend(new_diffs)
-    state["tool_diffs"] = tool_diffs
+yellow_initialiser_tool_instance = YellowInitializerTool()
+yellow_network_workflow_tool_instance = YellowNetworkWorkflowTool()
+yellow_multiparty_tool_instance = YellowNextMultiPartyFullLifecycle()
+yellow_versioned_integration_tool_instance = YellowVersionedIntegrationTool()
 
 
 async def architect_node(state: AgentState) -> AgentState:
     """
-    Generate the integration plan.
+    Generate the integration plan and detect Yellow requirements via LLM.
+    Sets plan_notes, sdk_version, and all needs_* / needs_*_tools from planner output.
     """
     plan = await generate_plan(state.get("prompt", ""), state.get("file_contents", {}))
 
     state["plan_notes"] = plan.get("notes_markdown", "")
     state["sdk_version"] = plan.get("yellow_sdk_version", "latest")
-    state["thinking_log"] = state.get("thinking_log", []) + ["Architecture plan generated"]
-    return state
 
+    needs_yellow = plan.get("needs_yellow", False)
+    needs_simple = plan.get("needs_simple_channel", False)
+    needs_multiparty = plan.get("needs_multiparty", False)
+    needs_versioned = plan.get("needs_versioned", False)
+    needs_tip = plan.get("needs_tip", False)
+    needs_deposit = plan.get("needs_deposit", False)
 
-async def parse_yellow_node(state: AgentState) -> AgentState:
-    """
-    Parse prompt to determine which Yellow workflows are required.
-    Sets flags on state: needs_yellow, needs_simple_channel, needs_multiparty, needs_versioned
-    """
-    prompt = state.get("prompt", "") or ""
+    state["needs_yellow"] = needs_yellow
+    state["needs_simple_channel"] = needs_simple
+    state["needs_multiparty"] = needs_multiparty
+    state["needs_versioned"] = needs_versioned
+    state["needs_tip"] = needs_tip
+    state["needs_deposit"] = needs_deposit
 
-    needs_yellow = state.get("needs_yellow")
-    if needs_yellow is None:
-        needs_yellow = detect_yellow_requirement(prompt)
+    state["needs_yellow_tools"] = needs_yellow
+    state["needs_simple_channel_tools"] = needs_simple
+    state["needs_multiparty_tools"] = needs_multiparty
+    state["needs_versioned_tools"] = needs_versioned
+    state["needs_tip_tools"] = needs_tip
+    state["needs_deposit_tools"] = needs_deposit
 
-    needs_simple = state.get("needs_simple_channel")
-    if needs_simple is None:
-        pl = prompt.lower()
-        needs_simple = any(k in pl for k in ("channel", "nitrolite", "create channel", "open channel", "stateless", "simple channel"))
-
-    needs_multiparty = state.get("needs_multiparty")
-    if needs_multiparty is None:
-        needs_multiparty = detect_multiparty_requirement(prompt)
-
-    needs_versioned = state.get("needs_versioned")
-    if needs_versioned is None:
-        needs_versioned = detect_versioned_integration_requirement(prompt) or needs_multiparty
-
-    needs_tip = state.get("needs_tip")
-    if needs_tip is None:
-        needs_tip = detect_tip_requirement(prompt)
-
-    needs_deposit = state.get("needs_deposit")
-    if needs_deposit is None:
-        needs_deposit = detect_deposit_requirement(prompt)
-
-    state.update({
-        "needs_yellow": needs_yellow,
-        "needs_simple_channel": needs_simple,
-        "needs_multiparty": needs_multiparty,
-        "needs_versioned": needs_versioned,
-        "needs_tip": needs_tip,
-        "needs_deposit": needs_deposit,
-        "prefer_yellow_tools": needs_yellow,
-    })
-
-    state["thinking_log"] = state.get("thinking_log", []) + [
-        f"Parsed Yellow requirements: yellow={needs_yellow}, simple={needs_simple}, multiparty={needs_multiparty}, versioned={needs_versioned}, tip={needs_tip}, deposit={needs_deposit}"
-    ]
-
-    return state
-
-
-async def write_code_node(state: AgentState) -> AgentState:
-    """
-    Generate code changes.
-    """
-    llm_diffs = await write_code(
-        state.get("prompt", ""),
-        state.get("file_contents", {}),
-        state.get("plan_notes", ""),
-        state.get("sdk_version", "latest"),
-        state.get("doc_context", "")
+    logger.info(
+        "Architect: plan + Yellow requirements: yellow=%s, simple=%s, multiparty=%s, versioned=%s, tip=%s, deposit=%s",
+        needs_yellow, needs_simple, needs_multiparty, needs_versioned, needs_tip, needs_deposit,
     )
-
-    tool_diffs = state.get("tool_diffs", []) or []
-    diffs = _merge_diffs(tool_diffs, llm_diffs)
-
-    logger.info(f"Generated {len(llm_diffs)} LLM file changes, merged to {len(diffs)} total changes")
-
-    state["diffs"] = diffs
-    state["thinking_log"] = state.get("thinking_log", []) + [f"Generated {len(diffs)} file changes"]
+    state["thinking_log"] = state.get("thinking_log", []) + [
+        "Architecture plan generated",
+        f"Yellow requirements: yellow={needs_yellow}, simple_channel={needs_simple}, multiparty={needs_multiparty}, versioned={needs_versioned}, tip={needs_tip}, deposit={needs_deposit}",
+    ]
     return state
-
 
 async def yellow_init_node(state: AgentState) -> AgentState:
     """
     Initialize Yellow SDK in the target repository.
     """
-    repo_path = state.get("repo_path", "/home/user/app")
-    if not repo_path:
+    needs_yellow = state.get("needs_yellow")
+    if not needs_yellow:
         state["yellow_init_status"] = "failed"
         state["thinking_log"] = state.get("thinking_log", []) + ["Yellow init failed: no repo_path"]
-
         return state
 
     try:
-        initializer = YellowInitializerTool()
-        result = await initializer.invoke(state)
-
-        
-
-        state.update(result)
-        _append_tool_diffs(state, result.get("yellow_tool_diffs", []))
+        await yellow_initialiser_tool_instance.invoke(state)
         return state
-
     except Exception as e:
         state["yellow_init_status"] = "failed"
         state["thinking_log"] = state.get("thinking_log", []) + [f"Yellow init error: {str(e)}"]
@@ -150,7 +86,7 @@ async def yellow_workflow_node(state: AgentState) -> AgentState:
     """
     Run the Yellow network workflow after initialization.
     """
-    repo_path = state.get("repo_path", "/home/user/app")
+    repo_path = state.get("repo_path", "./sandbox")
     if not repo_path:
         state["yellow_workflow_status"] = "failed"
         state["thinking_log"] = state.get("thinking_log", []) + ["Yellow workflow failed: no repo_path"]
@@ -159,12 +95,8 @@ async def yellow_workflow_node(state: AgentState) -> AgentState:
 
     try:
         workflow_tool = YellowNetworkWorkflowTool()
-        result = await workflow_tool.invoke(state)
-
-        state.update(result)
-        _append_tool_diffs(state, result.get("yellow_tool_diffs", []))
+        await workflow_tool.invoke(state)
         return state
-
     except Exception as e:
         state["yellow_workflow_status"] = "failed"
         state["thinking_log"] = state.get("thinking_log", []) + [f"Yellow workflow error: {str(e)}"]
@@ -172,19 +104,16 @@ async def yellow_workflow_node(state: AgentState) -> AgentState:
 
 
 async def yellow_multiparty_node(state: AgentState) -> AgentState:
-    repo_path = state.get("repo_path", "/home/user/app")
-    if not repo_path:
+    needs_multiparty = state.get("needs_multiparty")
+    if not needs_multiparty:
         state["yellow_multiparty_status"] = "skipped"
-        state["thinking_log"] = state.get("thinking_log", []) + ["Multiparty: no repo_path provided"]
+        state["thinking_log"] = state.get("thinking_log", []) + ["Multiparty: no needs_multiparty"]
         return state
 
     try:
         multiparty_tool = YellowNextMultiPartyFullLifecycle()
-        result = await multiparty_tool.invoke(state)
-        state.update(result)
-        _append_tool_diffs(state, result.get("yellow_tool_diffs", []))
+        await multiparty_tool.invoke(state)
         return state
-
     except Exception as e:
         state["yellow_multiparty_status"] = "failed"
         state["thinking_log"] = state.get("thinking_log", []) + [f"Multiparty error: {str(e)}"]
@@ -192,22 +121,15 @@ async def yellow_multiparty_node(state: AgentState) -> AgentState:
 
 
 async def yellow_versioned_node(state: AgentState) -> AgentState:
-    repo_path = state.get("repo_path", "/home/user/app")
-    if not repo_path:
-        state["yellow_versioned_status"] = "skipped"
-        state["thinking_log"] = state.get("thinking_log", []) + ["Versioned integration: no repo_path provided"]
-        return state
-
+    needs_versioned = state.get("needs_versioned")
+    if not needs_versioned:
+            state["yellow_versioned_status"] = "skipped"
+            state["thinking_log"] = state.get("thinking_log", []) + ["Versioned integration: no needs_versioned"]
+            return state
     try:
         versioned_tool = YellowVersionedIntegrationTool()
-        result = await versioned_tool.invoke(state)
-        state.update(result)
-        _append_tool_diffs(state, result.get("yellow_tool_diffs", []))
-        if state.get("needs_yellow"):
-            tool_diffs = state.get("tool_diffs", []) or []
-            state["diffs"] = _merge_diffs(tool_diffs, state.get("diffs", []) or [])
+        await versioned_tool.invoke(state)
         return state
-
     except Exception as e:
         state["yellow_versioned_status"] = "failed"
         state["thinking_log"] = state.get("thinking_log", []) + [f"Versioned integration error: {str(e)}"]
@@ -215,23 +137,16 @@ async def yellow_versioned_node(state: AgentState) -> AgentState:
 
 
 async def yellow_tip_node(state: AgentState) -> AgentState:
-    """
-    Inject Yellow tipping utility into the project.
-    Should be called after yellow_init and yellow_workflow have run.
-    """
-    repo_path = state.get("repo_path", "/home/user/app")
-    if not repo_path:
+    needs_tip = state.get("needs_tip")
+    if not needs_tip:
         state["yellow_tip_status"] = "skipped"
-        state["thinking_log"] = state.get("thinking_log", []) + ["Yellow tip: no repo_path provided"]
+        state["thinking_log"] = state.get("thinking_log", []) + ["Yellow tip: no needs_tip"]
         return state
 
     try:
         tip_tool = YellowTipTool()
-        result = await tip_tool.invoke(state)
-        state.update(result)
-        _append_tool_diffs(state, result.get("yellow_tool_diffs", []))
+        await tip_tool.invoke(state)
         return state
-
     except Exception as e:
         state["yellow_tip_status"] = "failed"
         state["thinking_log"] = state.get("thinking_log", []) + [f"Yellow tip error: {str(e)}"]
@@ -239,24 +154,50 @@ async def yellow_tip_node(state: AgentState) -> AgentState:
 
 
 async def yellow_deposit_node(state: AgentState) -> AgentState:
-    """
-    Inject Yellow deposit utility into the project.
-    Should be called after yellow_init and yellow_workflow have run.
-    """
-    repo_path = state.get("repo_path", "/home/user/app")
-    if not repo_path:
+    needs_deposit = state.get("needs_deposit")
+    if not needs_deposit:
         state["yellow_deposit_status"] = "skipped"
-        state["thinking_log"] = state.get("thinking_log", []) + ["Yellow deposit: no repo_path provided"]
+        state["thinking_log"] = state.get("thinking_log", []) + ["Yellow deposit: no needs_deposit"]
         return state
 
     try:
         deposit_tool = YellowDepositTool()
-        result = await deposit_tool.invoke(state)
-        state.update(result)
-        _append_tool_diffs(state, result.get("yellow_tool_diffs", []))
+        await deposit_tool.invoke(state)
         return state
-
     except Exception as e:
         state["yellow_deposit_status"] = "failed"
         state["thinking_log"] = state.get("thinking_log", []) + [f"Yellow deposit error: {str(e)}"]
         return state
+    
+async def write_code_node(state: AgentState) -> AgentState:
+    """
+    Generate code changes.
+    """
+    llm_diffs = await write_code(
+        state.get("prompt", ""),
+        state.get("file_contents", {}),
+        state.get("plan_notes", ""),
+        state.get("sdk_version", "latest"),
+        state.get("doc_context", ""),
+        state.get("tool_diffs", [])
+    )
+
+    diffs = state.get("diffs", []) or []
+    diffs.extend(llm_diffs)
+
+    logger.info(f"Generated {len(llm_diffs)} LLM file changes, merged to {len(diffs)} total changes")
+
+    # Merge tool_diffs and llm_diffs, prefer llm_diffs where conflicts (same file) exist
+    tool_diffs = state.get("tool_diffs", []) or []
+    llm_paths = {d.get("file", "") for d in llm_diffs}
+    # Filter out tool_diffs that conflict with llm_diffs
+    merged = [d for d in tool_diffs if d.get("path") not in llm_paths]
+    merged.extend(llm_diffs)
+    state["diffs"] = merged
+    
+    logger.info(f"tool diffs: {tool_diffs}")
+    logger.info(f"llm diffs: {llm_diffs}")
+    logger.info(f"merged diffs: {merged}")
+    state["thinking_log"] = state.get("thinking_log", []) + [f"Generated {len(diffs)} file changes"]
+    return state
+    

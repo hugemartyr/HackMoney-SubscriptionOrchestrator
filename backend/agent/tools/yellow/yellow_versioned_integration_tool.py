@@ -1,418 +1,110 @@
-import json
-import subprocess
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import List
 
-from pydantic import BaseModel
-from langchain_core.callbacks import AsyncCallbackHandler
-from agent.tools.yellow.diff_utils import write_file_with_diff
+from agent.tools.yellow.helper_function import make_diff, read_text_safe
+from agent.state import AgentState, Diff
+from agent.tools.yellow.template_code import (
+    VERSIONED_INTEGRATION_VERSION,
+    get_versioned_version_ts,
+    VERSIONED_CONFIG_TS,
+    VERSIONED_UTILS_TS,
+    VERSIONED_AUTH_TS,
+)
+from logging import getLogger
 
+logger = getLogger(__name__)
 
-class YellowVersionedIntegrationInput(BaseModel):
-    """Input for versioned integration tool."""
-    repo_path: str
-    framework_hint: Optional[str] = None
-    requires_versioned: bool = False
-
-
-class YellowVersionedIntegrationOutput(BaseModel):
-    """Output from versioned integration execution."""
-    success: bool
-    action: Optional[str]  # installed, already_up_to_date, upgraded
-    version: str
-    files_modified: List[str]
-    diffs: List[Dict[str, Any]] = []
-    message: str
-    error: Optional[str] = None
-
-
-def detect_versioned_integration_requirement(prompt: str) -> bool:
-    """
-    Detect if user prompt requires versioned Yellow integration layer.
-    Looks for keywords indicating structured integration, library setup, or framework init.
-    """
-    keywords = [
-        "integration layer", "versioned", "version control",
-        "library setup", "initialize", "scaffold",
-        "abstract", "abstraction", "helper", "wrapper",
-        "reusable", "framework", "sdk layer",
-        "config", "configuration", "session"
-    ]
-    prompt_lower = prompt.lower()
-    return any(kw in prompt_lower for kw in keywords)
-
+def _parse_version(content: str) -> str:
+    """Extract version string from version.ts content. Returns '0.0.0' if unreadable."""
+    if not content:
+        return "0.0.0"
+    try:
+        parts = content.split('"')
+        return parts[1] if len(parts) > 1 else "0.0.0"
+    except Exception:
+        return "0.0.0"
 
 class YellowVersionedIntegrationTool:
     """
-    LangGraph-compatible tool for versioned Yellow integration layer in Next.js/TypeScript.
-    
-    Creates and maintains a structured integration layer:
-    - version.ts: Version tracking
-    - config.ts: Configuration and constants
-    - utils.ts: Helper functions
-    - auth.ts: Authentication utilities
-    
-    Safe, idempotent, upgrade-aware. Designed to run after yellow_initialiser.
+    Proposes versioned Yellow integration layer (version.ts, config.ts, utils.ts, auth.ts) in src/lib/yellow/ as diffs only.
+    No file writes; no dependency install or .env. Assumes initialiser has run.
     """
-    
-    name = "yellow_versioned_integration"
-    description = "Create versioned Yellow integration layer in project"
 
-    INTEGRATION_VERSION = "1.0.0"
+    async def invoke(self, state: AgentState) -> None:
+        """Update state in place: propose layer files as tool_diffs; set yellow_versioned_status, thinking_log."""
+        repo_path = state.get("repo_path") or "./sandbox"
+        repo = Path(repo_path).resolve()
 
-    def __init__(self, stream_callback: Optional[AsyncCallbackHandler] = None):
-        self.stream_callback = stream_callback
+        if not repo.exists():
+            logger.warning("Versioned integration repo missing: %s", repo_path)
+            state["yellow_versioned_status"] = "failed"
+            state["thinking_log"] = state.get("thinking_log", []) + [
+                "Repository path does not exist",
+            ]
+            return
+        if not (repo / "package.json").exists():
+            logger.warning("Versioned integration: not a Node project at %s", repo_path)
+            state["yellow_versioned_status"] = "failed"
+            state["thinking_log"] = state.get("thinking_log", []) + [
+                "Not a Node.js project (missing package.json)",
+            ]
+            return
 
-    async def emit_event(self, event_type: str, **kwargs) -> None:
-        """Emit SSE event through callback."""
-        if self.stream_callback:
-            await self.stream_callback.on_tool_start(
-                {"name": event_type},
-                input_str=json.dumps(kwargs)
-            )
+        version_rel = "src/lib/yellow/version.ts"
+        version_path = repo / version_rel
+        current_content = read_text_safe(version_path)
+        current_version = _parse_version(current_content or "")
 
-    async def async_run(self, repo_path: str, framework_hint: Optional[str] = None, requires_versioned: bool = False) -> YellowVersionedIntegrationOutput:
-        """
-        Async entry point for LangGraph integration.
-        Creates versioned Yellow integration layer.
-        """
-        if not requires_versioned:
-            return YellowVersionedIntegrationOutput(
-                success=True,
-                action="skipped",
-                version=self.INTEGRATION_VERSION,
-                files_modified=[],
-                message="Versioned integration not required for this project"
-            )
-
-        try:
-            repo = Path(repo_path).resolve()
-            if not repo.exists():
-                return YellowVersionedIntegrationOutput(
-                    success=False,
-                    action=None,
-                    version=self.INTEGRATION_VERSION,
-                    files_modified=[],
-                    message="Repository path does not exist",
-                    error=f"Path not found: {repo_path}"
-                )
-
-            if not (repo / "package.json").exists():
-                return YellowVersionedIntegrationOutput(
-                    success=False,
-                    action=None,
-                    version=self.INTEGRATION_VERSION,
-                    files_modified=[],
-                    message="Not a Node.js project",
-                    error="Missing package.json"
-                )
-
-            # Emit start
-            await self.emit_event("tool", name=self.name, status="running")
-            await self.emit_event("thought", content="Setting up versioned integration layer...")
-
-            yellow_dir = repo / "src" / "lib" / "yellow"
-            version_file = yellow_dir / "version.ts"
-
-            # Check if layer already exists
-            if not yellow_dir.exists():
-                await self.emit_event("thought", content="Creating new Yellow integration layer...")
-                files, diffs = self._inject_full_layer(yellow_dir)
-                return YellowVersionedIntegrationOutput(
-                    success=True,
-                    action="installed",
-                    version=self.INTEGRATION_VERSION,
-                    files_modified=files,
-                    diffs=diffs,
-                    message="Yellow integration layer installed"
-                )
-
-            # Check version
-            if not version_file.exists():
-                return YellowVersionedIntegrationOutput(
-                    success=False,
-                    action=None,
-                    version=self.INTEGRATION_VERSION,
-                    files_modified=[],
-                    message="Yellow folder exists but version.ts missing",
-                    error="Manual intervention required"
-                )
-
-            current_version = self._read_version(version_file)
-
-            if current_version == self.INTEGRATION_VERSION:
-                await self.emit_event("thought", content="Integration layer already up to date")
-                return YellowVersionedIntegrationOutput(
-                    success=True,
-                    action="already_up_to_date",
-                    version=current_version,
-                    files_modified=[],
-                    diffs=[],
-                    message="Yellow integration layer is current"
-                )
-
-            if self._is_upgrade_needed(current_version):
-                await self.emit_event("thought", content=f"Upgrading from {current_version} to {self.INTEGRATION_VERSION}...")
-                files, diffs = self._inject_full_layer(yellow_dir, overwrite=True)
-                return YellowVersionedIntegrationOutput(
-                    success=True,
-                    action="upgraded",
-                    version=self.INTEGRATION_VERSION,
-                    files_modified=files,
-                    diffs=diffs,
-                    message=f"Upgraded from {current_version} to {self.INTEGRATION_VERSION}"
-                )
-
-            return YellowVersionedIntegrationOutput(
-                success=False,
-                action=None,
-                version=current_version,
-                files_modified=[],
-                message="Existing version is newer",
-                error=f"Version {current_version} is newer than tool version {self.INTEGRATION_VERSION}"
-            )
-
-        except Exception as e:
-            await self.emit_event("thought", content=f"Versioned integration setup failed: {e}")
-            return YellowVersionedIntegrationOutput(
-                success=False,
-                action=None,
-                version=self.INTEGRATION_VERSION,
-                files_modified=[],
-                message="Versioned integration setup failed",
-                error=str(e)
-            )
-
-    async def invoke(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        LangGraph node invocation.
-        
-        Input state:
-        - repo_path: str
-        - prompt: str (to detect versioned requirement)
-        
-        Output state:
-        - yellow_versioned_status: success/skipped/failed
-        - yellow_versioned_action: installed/upgraded/already_up_to_date/skipped
-        - yellow_versioned_files: files modified
-        """
-        repo_path = state.get("repo_path")
-        prompt = state.get("prompt", "")
-        
-        # Detect if versioned integration is needed (prefer parse node flag)
-        requires_versioned = state.get("needs_versioned")
-        if requires_versioned is None:
-            requires_versioned = detect_versioned_integration_requirement(prompt)
-
-        if not requires_versioned:
-            await self.emit_event("thought", content="Prompt does not require versioned integration layer")
-            return {
-                "yellow_versioned_status": "skipped",
-                "yellow_versioned_action": "skipped",
-                "thinking_log": state.get("thinking_log", []) + ["Versioned integration skipped (not required by prompt)"]
-            }
-        
-        if not repo_path:
-            await self.emit_event("thought", content="No repo_path provided for versioned integration")
-            return {
-                "yellow_versioned_status": "failed",
-                "thinking_log": state.get("thinking_log", []) + ["Versioned integration failed: no repo_path"]
-            }
-        
-        # Run and update state
-        await self.emit_event("tool", name=self.name, status="running")
-        await self.emit_event("thought", content="Creating versioned Yellow integration layer...")
-
-        result = await self.async_run(repo_path, state.get("framework_detected"), True)
-
-        new_state = {
-            "yellow_versioned_status": "success" if result.success else "failed",
-            "yellow_versioned_action": result.action,
-            "yellow_versioned_files": result.files_modified,
-            "yellow_tool_diffs": result.diffs,
-            "thinking_log": state.get("thinking_log", []) + [result.message]
+        templates = {
+            "version.ts": get_versioned_version_ts(VERSIONED_INTEGRATION_VERSION),
+            "config.ts": VERSIONED_CONFIG_TS,
+            "utils.ts": VERSIONED_UTILS_TS,
+            "auth.ts": VERSIONED_AUTH_TS,
         }
 
-        if result.error:
-            new_state["versioned_error"] = result.error
+        diffs: List[Diff] = []
 
-        return new_state
+        # No existing version file or folder: propose full layer
+        if current_content is None:
+            diffs.extend(self._propose_layer_diffs(repo, templates))
+            state["tool_diffs"] = (state.get("tool_diffs") or []) + diffs
+            state["thinking_log"] = state.get("thinking_log", []) + [
+                "Proposed Yellow integration layer (src/lib/yellow/)",
+            ]
+            state["yellow_versioned_status"] = "success"
+            return
 
-    # -----------------------------------------
-    # Version Helpers
-    # -----------------------------------------
+        if current_version == VERSIONED_INTEGRATION_VERSION:
+            logger.info("Versioned integration already up to date: %s", current_version)
+            state["thinking_log"] = state.get("thinking_log", []) + [
+                "Yellow integration layer is current",
+            ]
+            state["yellow_versioned_status"] = "success"
+            return
 
-    def _read_version(self, version_file: Path) -> str:
-        """Extract version from version.ts file."""
-        try:
-            content = version_file.read_text()
-            return content.split('"')[1]
-        except Exception:
-            return "0.0.0"
+        if current_version < VERSIONED_INTEGRATION_VERSION:
+            diffs.extend(self._propose_layer_diffs(repo, templates))
+            state["tool_diffs"] = (state.get("tool_diffs") or []) + diffs
+            state["thinking_log"] = state.get("thinking_log", []) + [
+                f"Proposed upgrade from {current_version} to {VERSIONED_INTEGRATION_VERSION}",
+            ]
+            state["yellow_versioned_status"] = "success"
+            return
 
-    def _is_upgrade_needed(self, current_version: str) -> bool:
-        """Check if upgrade is needed (current < tool version)."""
-        return current_version < self.INTEGRATION_VERSION
+        # Existing version is newer
+        state["yellow_versioned_status"] = "failed"
+        state["thinking_log"] = state.get("thinking_log", []) + [
+            f"Existing version {current_version} is newer than {VERSIONED_INTEGRATION_VERSION}",
+        ]
+        
+        logger.info(f"Versioned integration: diffs: {diffs}")
 
-    # -----------------------------------------
-    # Inject Layer
-    # -----------------------------------------
-
-    def _inject_full_layer(self, yellow_dir: Path, overwrite: bool = False) -> tuple[List[str], List[Dict[str, Any]]]:
-        """
-        Create full Yellow integration layer.
-        Returns list of files created/modified.
-        """
-        yellow_dir.mkdir(parents=True, exist_ok=True)
-
-        files_created: list[str] = []
-        diffs: list[Dict[str, Any]] = []
-        file_templates = {
-            "version.ts": self._version_template(),
-            "config.ts": self._config_template(),
-            "utils.ts": self._utils_template(),
-            "auth.ts": self._auth_template(),
-        }
-
-        repo_root = yellow_dir.parents[2]
-        for filename, content in file_templates.items():
-            file_path = yellow_dir / filename
-            if not file_path.exists() or overwrite:
-                diff = write_file_with_diff(repo_root, f"src/lib/yellow/{filename}", content)
-                if diff:
-                    diffs.append(diff)
-                files_created.append(f"src/lib/yellow/{filename}")
-
-        return files_created, diffs
-
-    # -----------------------------------------
-    # Templates
-    # -----------------------------------------
-
-    def _version_template(self) -> str:
-        return f'export const YELLOW_INTEGRATION_VERSION = "{self.INTEGRATION_VERSION}";'
-
-    def _config_template(self) -> str:
-        return """
-import { base } from "viem/chains";
-
-export const YELLOW_WS =
-  process.env.YELLOW_WS ??
-  "wss://clearnet-sandbox.yellow.com/ws";
-
-export const YELLOW_CHAIN = base;
-
-export const AUTH_SCOPE =
-  process.env.YELLOW_SCOPE ?? "test.app";
-
-export const APP_NAME =
-  process.env.YELLOW_APP_NAME ?? "Test app";
-
-export const SESSION_DURATION = 3600;
-
-export const DEFAULT_ALLOWANCES = [
-  {
-    asset: "usdc",
-    amount: "1",
-  },
-];
-"""
-
-    def _utils_template(self) -> str:
-        return """
-import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { type Address } from "viem";
-
-export interface SessionKey {
-  privateKey: `0x${string}`;
-  address: Address;
-}
-
-export const generateSessionKey = (): SessionKey => {
-  const privateKey = generatePrivateKey();
-  const account = privateKeyToAccount(privateKey);
-  return { privateKey, address: account.address };
-};
-"""
-
-    def _auth_template(self) -> str:
-        return """
-import {
-  createAuthRequestMessage,
-  createEIP712AuthMessageSigner,
-  createAuthVerifyMessage,
-  RPCMethod,
-  RPCResponse
-} from "@erc7824/nitrolite";
-
-import { Client } from "yellow-ts";
-import { createWalletClient, http, WalletClient } from "viem";
-import { mnemonicToAccount } from "viem/accounts";
-
-import {
-  AUTH_SCOPE,
-  APP_NAME,
-  SESSION_DURATION,
-  DEFAULT_ALLOWANCES,
-  YELLOW_CHAIN
-} from "./config";
-
-import { generateSessionKey, SessionKey } from "./utils";
-
-export function createWalletFromMnemonic(seed: string): WalletClient {
-  return createWalletClient({
-    account: mnemonicToAccount(seed),
-    chain: YELLOW_CHAIN,
-    transport: http(),
-  });
-}
-
-export async function authenticateWallet(
-  client: Client,
-  walletClient: WalletClient
-): Promise<SessionKey> {
-
-  const sessionKey = generateSessionKey();
-  const expires = String(Math.floor(Date.now() / 1000) + SESSION_DURATION);
-
-  const authMessage = await createAuthRequestMessage({
-    address: walletClient.account?.address!,
-    session_key: sessionKey.address,
-    application: APP_NAME,
-    allowances: DEFAULT_ALLOWANCES,
-    expires_at: BigInt(expires),
-    scope: AUTH_SCOPE,
-  });
-
-  client.listen(async (message: RPCResponse) => {
-    if (message.method === RPCMethod.AuthChallenge) {
-      const authParams = {
-        scope: AUTH_SCOPE,
-        application: walletClient.account?.address!,
-        participant: sessionKey.address,
-        expire: expires,
-        allowances: DEFAULT_ALLOWANCES,
-        session_key: sessionKey.address,
-        expires_at: BigInt(expires),
-      };
-
-      const signer = createEIP712AuthMessageSigner(
-        walletClient,
-        authParams,
-        { name: APP_NAME }
-      );
-
-      const verifyMsg = await createAuthVerifyMessage(
-        signer,
-        message
-      );
-
-      await client.sendMessage(verifyMsg);
-    }
-  });
-
-  await client.sendMessage(authMessage);
-
-  return sessionKey;
-}
-"""
+    def _propose_layer_diffs(self, repo: Path, templates: dict) -> List[Diff]:
+        """Build diffs for version.ts, config.ts, utils.ts, auth.ts. No file writes."""
+        diffs: List[Diff] = []
+        for filename, content in templates.items():
+            rel = f"src/lib/yellow/{filename}"
+            d = make_diff(repo, rel, content)
+            if d:
+                diffs.append(d)
+        return diffs

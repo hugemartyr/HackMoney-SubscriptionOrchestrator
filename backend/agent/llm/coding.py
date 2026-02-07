@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 import json
 import re
 
@@ -14,7 +14,7 @@ from logging import getLogger
 logger = getLogger(__name__)
 
 async def propose_code_changes(
-    prompt: str, files: Dict[str, str], plan_notes: str, sdk_version: str, rag_context: str
+    prompt: str, files: Dict[str, str], plan_notes: str, sdk_version: str, rag_context: str, tool_diffs: List[Diff]
 ) -> List[Diff]:
     """
     Use LLM to propose code changes for integrating Yellow Network SDK.
@@ -23,6 +23,13 @@ async def propose_code_changes(
     """
 
     # High-level call overview (full prompt + plan, but summarized file info)
+    # Effective files: repo files + tool-proposed content (tool newCode overrides for those paths)
+    effective_files: Dict[str, str] = dict(files or {})
+    for d in tool_diffs or []:
+        path = d.get("file")
+        if path and "newCode" in d:
+            effective_files[path] = d.get("newCode", "")
+
     logger.info(
         "propose_code_changes called",
         extra={
@@ -30,12 +37,14 @@ async def propose_code_changes(
             "plan_notes": plan_notes,
             "sdk_version": sdk_version,
             "rag_context_len": len(rag_context or ""),
-            "file_count": len(files),
+            "file_count": len(files or {}),
+            "tool_diff_count": len(tool_diffs or []),
+            "effective_file_count": len(effective_files),
         },
     )
 
-    # Per-file summary with truncated content preview so logs stay readable
-    for path, content in (files or {}).items():
+    # Per-file summary with truncated content preview so logs stay readable (effective = files + tool_diffs)
+    for path, content in effective_files.items():
         if content is None:
             content = ""
         preview = content[:400]
@@ -58,21 +67,16 @@ async def propose_code_changes(
     except Exception as e:
         raise RuntimeError(f"Failed to import required LLM libraries: {e}")
 
-    # Prepare file context (this is what goes into the LLM prompt)
+    # Prepare file context from effective files (repo + tool-proposed content so LLM sees full picture)
     file_contexts: list[str] = []
     key_files = ["package.json", "package-lock.json", "src/main.ts", "src/index.ts", "app/page.tsx", "main.py", "routes.py"]
-    
-    for path in sorted(files.keys()):
-        content = files.get(path, "")
-        if not content:
-            continue
-        
+
+    for path in sorted(effective_files.keys()):
+        content = effective_files.get(path, "")
+        if content is None:
+            content = ""
         # Include full content for key files, snippets for others if too large
-        # With Search/Replace, we need to be careful about snippets, but 
-        # usually providing enough context is fine. 
-        # Ideally, we should provide full files to ensure the LLM sees everything it needs to match.
-        # For very large files, this might still be an issue, but let's stick to the existing logic for now.
-        if any(key in path for key in key_files) or len(content) < 5000: # Increased limit slightly
+        if any(key in path for key in key_files) or len(content) < 5000:
             file_contexts.append(f"--- {path} ---\n{content}\n")
         else:
             snippet = content[:5000] + ("\n... (truncated)" if len(content) > 5000 else "")
@@ -115,6 +119,7 @@ async def propose_code_changes(
         rag_context=rag_context,
         file_context=context,
         sdk_version=sdk_version,
+        tool_diffs=tool_diffs,
     )
 
     # Log the full logical prompt we send to the LLM (system + human)
@@ -292,9 +297,6 @@ async def propose_code_changes(
     
     validated_diffs: List[Diff] = []
 
-    # ---------------------------------------------------------
-    # PATH A: Efficient Search/Replace (Preferred)
-    # ---------------------------------------------------------
     if changes_list and isinstance(changes_list, list):
         # 1. Group changes by file to handle multi-hunk edits
         changes_by_file: Dict[str, List[Dict]] = {}
@@ -315,18 +317,17 @@ async def propose_code_changes(
             },
         )
             
-        # 2. Process each file
+        # 2. Process each file (allow any file in effective set: repo files + tool-proposed)
         for file_path, file_changes in changes_by_file.items():
-            # Enforce: only modify files that exist in the provided `files` map
-            if file_path not in files:
+            if file_path not in effective_files:
                 logger.info(
                     "Skipping search/replace changes for unknown file",
                     extra={"file_path": file_path},
                 )
                 continue
 
-            # Get original content
-            original_content = files.get(file_path, "")
+            # Get original content from effective (tool proposals already applied)
+            original_content = effective_files.get(file_path, "")
             # Use a buffer for sequential edits
             # If original_content is empty, we assume creation (start with empty buffer)
             current_content = original_content
@@ -400,9 +401,6 @@ async def propose_code_changes(
                     "newCode": current_content
                 })
 
-    # ---------------------------------------------------------
-    # PATH B: Legacy Full-File Diffs (Fallback)
-    # ---------------------------------------------------------
     elif diffs_list and isinstance(diffs_list, list):
         logger.info(
             "Processing legacy full-file diffs",
@@ -419,8 +417,8 @@ async def propose_code_changes(
             if not file_path or old_code == new_code:
                 continue
 
-            # Enforce: only accept diffs for files we actually know about
-            if file_path not in files:
+            # Enforce: only accept diffs for files in effective set (repo + tool-proposed)
+            if file_path not in effective_files:
                 logger.info(
                     "Skipping legacy diff for unknown file",
                     extra={"file_path": file_path},
@@ -452,8 +450,8 @@ async def propose_code_changes(
 
     return validated_diffs
 
-async def write_code(prompt: str, files: Dict[str, str], plan_notes: str, sdk_version: str, rag_context: str) -> List[Diff]:
+async def write_code(prompt: str, files: Dict[str, str], plan_notes: str, sdk_version: str, rag_context: str, tool_diffs: List[Diff]) -> List[Diff]:
     """
     Write code implementation. Alias for propose_code_changes.
     """
-    return await propose_code_changes(prompt, files, plan_notes, sdk_version, rag_context)
+    return await propose_code_changes(prompt, files, plan_notes, sdk_version, rag_context, tool_diffs)

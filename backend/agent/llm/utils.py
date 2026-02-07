@@ -16,9 +16,19 @@ def get_llm(**kwargs: Any):
     """Build ChatOpenAI client for OpenRouter using OPENROUTER_API_KEY and OPENROUTER_MODEL from config."""
     from config import settings
     from langchain_openai import ChatOpenAI
+    from pydantic import SecretStr
+    
+    logger.info(f"Using OpenRouter model: {settings.OPENROUTER_MODEL}")
+    logger.info(f"Using OpenRouter API key: {settings.OPENROUTER_API_KEY}")
+
+    api_key = (
+        SecretStr(settings.OPENROUTER_API_KEY)
+        if settings.OPENROUTER_API_KEY
+        else None
+    )
     return ChatOpenAI(
         base_url=OPENROUTER_BASE_URL,
-        api_key=settings.OPENROUTER_API_KEY,
+        api_key=api_key,
         model=settings.OPENROUTER_MODEL,
         **kwargs,
     )

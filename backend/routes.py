@@ -170,10 +170,7 @@ async def yellow_agent_stream(req: AgentPromptRequest):
         logger.info("Starting yellow agent run", extra={"runId": run_id})
         async for event in run_agent(run_id, req.prompt):
             payload = json.dumps(event, ensure_ascii=False)
-            logger.info(
-                "Streaming SSE event",
-                extra={"runId": run_id, "event_type": event.get("type"), "keys": list(event.keys())},
-            )
+            
             yield f"data: {payload}\n\n"
 
     headers = {

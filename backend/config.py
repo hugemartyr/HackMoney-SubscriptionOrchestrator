@@ -15,7 +15,7 @@ class Settings:
 
     # OpenRouter (LLM) – used for all agent LLM calls (e.g. Claude Sonnet)
     OPENROUTER_API_KEY: str | None = _os.getenv("OPENROUTER_API_KEY")
-    OPENROUTER_MODEL: str = _os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4")
+    OPENROUTER_MODEL: str = _os.getenv("OPENROUTER_MODEL", "qwen/qwen3-coder-next")
 
     # Legacy Google Gemini (optional; kept for embeddings or fallback)
     GOOGLE_API_KEY: str | None = _os.getenv("GOOGLE_API_KEY")
