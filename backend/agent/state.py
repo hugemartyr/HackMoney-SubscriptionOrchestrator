@@ -33,6 +33,7 @@ class AgentState(TypedDict, total=False):
     build_output: str  # Combined stdout/stderr from build
     build_success: Optional[bool]  # Build result (None = not run yet)
     error_count: int  # Track retry attempts
+    consecutive_build_failures: int  # Track consecutive build failures for fallback
     escalation_needed: bool  # Flag for human intervention
     needs_tip: bool  # Whether tipping functionality is needed
     needs_deposit: bool  # Whether deposit functionality is needed

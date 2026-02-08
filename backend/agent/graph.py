@@ -30,6 +30,7 @@ def start_agent_node(state: AgentState) -> AgentState:
         build_output = state.get("build_output") or "",
         build_success = state.get("build_success") or None,
         error_count = state.get("error_count") or 0,
+        consecutive_build_failures = state.get("consecutive_build_failures") or 0,
         awaiting_approval = False,
         approved_files = state.get("approved_files") or [],
         pending_approval_files = state.get("pending_approval_files") or [],
