@@ -1,4 +1,5 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { EnsProfile } from "@/components/ens/EnsProfile";
 import { AppSidebar, MobileNav, MobileHeader } from "./AppSidebar";
 
 interface AppLayoutProps {
@@ -22,6 +23,9 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Desktop Header */}
           <header className="hidden md:flex items-center gap-4 p-4 border-b border-border/50">
             <SidebarTrigger />
+            <div className="ml-auto">
+              <EnsProfile showAddress={false} />
+            </div>
           </header>
 
           {/* Page Content */}

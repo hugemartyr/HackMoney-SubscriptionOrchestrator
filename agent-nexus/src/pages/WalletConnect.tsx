@@ -7,6 +7,9 @@ import { getWalletState, saveWalletState, type WalletState } from "@/lib/storage
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useBalance, useChainId, useDisconnect } from "wagmi";
 import { mainnet, sepolia, polygon, base } from "wagmi/chains";
+import { useEnsProfile } from "@/hooks/useEns";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { EnsName } from "@/components/ens/EnsName";
 
 const supportedChains = [mainnet, sepolia, polygon, base];
 const chainById = new Map(supportedChains.map(chain => [chain.id, chain]));
@@ -16,16 +19,16 @@ const truncateAddress = (address: string) => {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 };
 
-const getExplorerBaseUrl = (chainId: number) => {
+const getExplorerBaseUrl = (chainId: any) => {
   const chain = chainById.get(chainId);
   return chain?.blockExplorers?.default.url ?? "https://etherscan.io";
 };
 
 const mockTransactions = [
-  { id: '1', type: 'Agent Deploy', amount: '-0.012 ETH', time: '2 hours ago', status: 'success' },
-  { id: '2', type: 'Settlement', amount: '+0.25 ETH', time: '5 hours ago', status: 'success' },
-  { id: '3', type: 'DCA Purchase', amount: '-0.1 ETH', time: '1 day ago', status: 'success' },
-  { id: '4', type: 'Subscription', amount: '-0.008 ETH', time: '3 days ago', status: 'success' },
+  { id: '1', type: 'Agent Deploy', amount: '-0.012 ETH', time: '2 hours ago', status: 'success', recipient: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045' },
+  { id: '2', type: 'Settlement', amount: '+0.25 ETH', time: '5 hours ago', status: 'success', recipient: '0x225f137127d9067788314bc7fcc1f36746a3c3B5' },
+  { id: '3', type: 'DCA Purchase', amount: '-0.1 ETH', time: '1 day ago', status: 'success', recipient: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' },
+  { id: '4', type: 'Subscription', amount: '-0.008 ETH', time: '3 days ago', status: 'success', recipient: '0x0000000000000000000000000000000000000000' },
 ];
 
 export default function WalletConnect() {
@@ -38,6 +41,8 @@ export default function WalletConnect() {
     address,
     query: { enabled: !!address },
   });
+
+  const { ensName, ensAvatar } = useEnsProfile(address);
 
   const handleDisconnect = () => {
     const newState: WalletState = {
@@ -66,7 +71,8 @@ export default function WalletConnect() {
 
   useEffect(() => {
     if (isConnected && address) {
-      const chainName = chainById.get(chainId)?.name ?? "Unknown";
+      // safe cast or check
+      const chainName = chainById.get(chainId as any)?.name ?? "Unknown";
       const newState: WalletState = {
         connected: true,
         address,
@@ -88,7 +94,7 @@ export default function WalletConnect() {
   }, [isConnected, address, chainId, formattedBalance]);
 
   const explorerUrl = wallet.address && chainId
-    ? `${getExplorerBaseUrl(chainId)}/address/${wallet.address}`
+    ? `${getExplorerBaseUrl(chainId as any)}/address/${wallet.address}`
     : null;
 
   if (!wallet.connected) {
@@ -135,12 +141,17 @@ export default function WalletConnect() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl gradient-emerald flex items-center justify-center">
-                <Wallet className="w-6 h-6 text-primary-foreground" />
-              </div>
+              <Avatar className="h-12 w-12 rounded-xl">
+                <AvatarImage src={ensAvatar ?? undefined} alt={ensName ?? "Wallet Avatar"} />
+                <AvatarFallback className="rounded-xl gradient-emerald flex items-center justify-center">
+                  <Wallet className="w-6 h-6 text-primary-foreground" />
+                </AvatarFallback>
+              </Avatar>
               <div>
                 <div className="flex items-center gap-2">
-                  <CardTitle className="text-lg">{wallet.address ? truncateAddress(wallet.address) : ""}</CardTitle>
+                  <CardTitle className="text-lg">
+                    {ensName ?? (wallet.address ? truncateAddress(wallet.address) : "")}
+                  </CardTitle>
                   <button
                     onClick={handleCopy}
                     className="p-1 hover:bg-secondary/50 rounded transition-colors"
@@ -158,11 +169,11 @@ export default function WalletConnect() {
                       rel="noreferrer"
                       className="p-1 hover:bg-secondary/50 rounded transition-colors"
                     >
-                  <ExternalLink className="w-4 h-4 text-muted-foreground" />
-                </a>
-              )}
-            </div>
-            <CardDescription>{wallet.network}</CardDescription>
+                      <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                    </a>
+                  )}
+                </div>
+                <CardDescription>{wallet.network}</CardDescription>
               </div>
             </div>
             <Button
@@ -207,7 +218,11 @@ export default function WalletConnect() {
               >
                 <div>
                   <p className="font-medium">{tx.type}</p>
-                  <p className="text-xs text-muted-foreground">{tx.time}</p>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{tx.time}</span>
+                    <span>•</span>
+                    <EnsName address={tx.recipient} className="hover:text-primary transition-colors" />
+                  </div>
                 </div>
                 <div className="text-right">
                   <p className={`font-medium ${tx.amount.startsWith('+') ? 'text-primary' : ''}`}>
