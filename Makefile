@@ -14,8 +14,8 @@ help:
 install:
 	@echo "Installing dependencies..."
 	
-	@cd agent-nexus && npm install
-	@cd frontend && npm install
+	@cd agent-nexus && npm install --force
+	@cd frontend && npm install --force
 
 backend:
 	@echo "Starting Backend on http://localhost:8000..."

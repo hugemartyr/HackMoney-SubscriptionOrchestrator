@@ -261,5 +261,5 @@ export function useAgentStream() {
     }
   };
 
-  return { startAgent, resumeAgent, consumeResumeStream, resumeFromStream, logs, isStreaming };
+  return { startAgent, resumeAgent, consumeResumeStream, resumeFromStream, logs, isStreaming, setLogs };
 }

@@ -18,7 +18,7 @@ import {
 export default function AgentChat() {
   const [input, setInput] = useState("");
   const [isApplying, setIsApplying] = useState(false);
-  const { startAgent, resumeAgent, resumeFromStream, logs, isStreaming } = useAgentStream();
+  const { startAgent, resumeAgent, resumeFromStream, logs, isStreaming, setLogs } = useAgentStream();
   const {
     state,
     clearPendingDiffs,
@@ -96,7 +96,12 @@ export default function AgentChat() {
 
   const handleApproveAll = async () => {
     try {
-      if (!state.activeRunId) return;
+      if (!state.activeRunId) {
+        console.warn('handleApproveAll: no activeRunId, cannot resume');
+        setLogs(prev => [...prev, '❌ Cannot resume: no active run ID']);
+        return;
+      }
+      
       setApprovalPending(false);
       setApprovalFiles([]);
       // Close diff tabs
@@ -104,9 +109,12 @@ export default function AgentChat() {
         closeFile(`__diff__/${f}`);
       }
       clearPendingDiffs();
+      
+      console.log(`Resuming agent with runId: ${state.activeRunId}`);
       await resumeAgent(state.activeRunId, true);
     } catch (error) {
       console.error('Failed to approve files:', error);
+      setLogs(prev => [...prev, `❌ Failed to resume agent: ${error instanceof Error ? error.message : 'Unknown error'}`]);
     }
   };
 
@@ -161,8 +169,21 @@ export default function AgentChat() {
 
       // Clear backend pending diffs (no resume), then resume workflow so backend does not overwrite our written content
       await applyAllDiffs(false, runId ?? null, false);
+      
+      // CRITICAL: Always resume the graph after applying diffs
       if (runId) {
+        console.log(`Resuming agent with runId: ${runId}`);
         await resumeAgent(runId, true);
+      } else {
+        // Try to get runId from state or use applyAllDiffs with andResume=true as fallback
+        console.warn('No runId available, attempting to resume via applyAllDiffs with andResume=true');
+        const result = await applyAllDiffs(true, null, true);
+        if (result instanceof Response) {
+          await resumeFromStream(result);
+        } else {
+          console.error('Failed to resume: no runId and applyAllDiffs did not return stream');
+          setLogs(prev => [...prev, '❌ Failed to resume agent: no active run ID']);
+        }
       }
 
       try {
@@ -173,6 +194,7 @@ export default function AgentChat() {
       }
     } catch (error) {
       console.error('Failed to apply all:', error);
+      setLogs(prev => [...prev, `❌ Error applying changes: ${error instanceof Error ? error.message : 'Unknown error'}`]);
     } finally {
       setIsApplying(false);
     }
