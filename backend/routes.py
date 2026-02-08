@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from agent.runner import get_last_agent_run_id, resume_agent, run_agent
 from config import settings
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse, FileResponse
 from services.upload_service import upload_from_github
 from services.pending_diff_service import clear_pending_diffs, get_last_run_id, list_pending_diffs, pop_pending_diff
 from services.sandbox_fs_service import SKIP_DIRS, delete_file, get_file_tree, read_text_file, require_root, write_text_file
@@ -346,4 +346,102 @@ async def download_project():
         extra={"size_bytes": len(data), "root": str(root)},
     )
     return Response(content=data, media_type="application/zip", headers=headers)
+
+
+@router.post("/api/project/save")
+async def save_project():
+    """
+    Save the current sandbox state as a zip file in backend/data/projects/{id}.zip.
+    Returns the project ID.
+    """
+    logger.info("Received /api/project/save request")
+    root = require_root()
+    project_id = uuid.uuid4().hex
+    
+    # Ensure projects directory exists
+    projects_dir = Path(__file__).parent / "data" / "projects"
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    
+    zip_path = projects_dir / f"{project_id}.zip"
+    
+    logger.info("Saving project zip", extra={"root": str(root), "zip_path": str(zip_path)})
+
+    with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for dirpath, dirnames, filenames in os.walk(root):
+            # Skip ignored dirs
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+
+            for filename in filenames:
+                abs_path = os.path.join(dirpath, filename)
+                rel_path = os.path.relpath(abs_path, root)
+                if rel_path.startswith(".."):
+                    continue
+                zf.write(abs_path, arcname=rel_path)
+                
+    logger.info("Project saved successfully", extra={"project_id": project_id})
+    return {"ok": True, "projectId": project_id}
+
+@router.get("/api/project/load/{project_id}")
+async def load_project(project_id: str):
+    """
+    Load a project from backend/data/projects/{id}.zip into the sandbox.
+    Clears existing sandbox content first.
+    """
+    logger.info("Received /api/project/load request", extra={"project_id": project_id})
+    
+    projects_dir = Path(__file__).parent / "data" / "projects"
+    zip_path = projects_dir / f"{project_id}.zip"
+    
+    if not zip_path.exists():
+        logger.warning("Project zip not found", extra={"zip_path": str(zip_path)})
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    sandbox_root = Path(settings.SANDBOX_DIR).resolve()
+    
+    if not str(sandbox_root).endswith("sandbox"):
+         logger.error("Sandbox path suspicious, aborting load", extra={"path": str(sandbox_root)})
+         raise HTTPException(status_code=500, detail="Sandbox configuration error")
+
+    if sandbox_root.exists():
+        import shutil
+        for item in sandbox_root.iterdir():
+            if item.name == ".git": continue 
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+    else:
+        sandbox_root.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Extracting project zip to sandbox", extra={"zip_path": str(zip_path), "sandbox": str(sandbox_root)})
+    
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        zf.extractall(sandbox_root)
+
+    from services.upload_service import _set_current_root
+    _set_current_root(sandbox_root)
+    
+    logger.info("Project loaded successfully")
+    return {"ok": True}
+
+
+@router.get("/api/project/download/{project_id}")
+async def download_project(project_id: str):
+    """
+    Download a project zip file from backend/data/projects/{id}.zip.
+    """
+    logger.info("Received /api/project/download request", extra={"project_id": project_id})
+    
+    projects_dir = Path(__file__).parent / "data" / "projects"
+    zip_path = projects_dir / f"{project_id}.zip"
+    
+    if not zip_path.exists():
+        logger.warning("Project zip not found for download", extra={"zip_path": str(zip_path)})
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return FileResponse(
+        path=zip_path,
+        filename=f"project_{project_id[:8]}.zip",
+        media_type="application/zip"
+    )
 
