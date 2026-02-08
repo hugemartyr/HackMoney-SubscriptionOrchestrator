@@ -1,5 +1,7 @@
 from __future__ import annotations
 from typing import Any, AsyncIterator, Dict, List
+import json
+import hashlib
 
 from langgraph.types import Command
 
@@ -10,6 +12,27 @@ from utils.logger import get_logger
 
 
 logger = get_logger(__name__)
+
+# Nodes that only read files, not write them
+READ_ONLY_NODES = {
+    "start_agent",
+    "context_check",
+    "read_code",
+    "analyze_imports",
+    "retrieve_docs",
+    "research",
+    "update_memory",
+    "architect",
+    "plan_review_and_doc_checklist",
+    "retrieve_targeted_docs",
+    "plan_correction",
+    "yellow_init",
+    "yellow_workflow",
+    "yellow_versioned",
+    "yellow_multiparty",
+    "yellow_tip",
+    "yellow_deposit",
+}
 
 
 async def run_agent(runId: str, prompt: str) -> AsyncIterator[Dict[str, Any]]:
@@ -28,6 +51,10 @@ async def run_agent(runId: str, prompt: str) -> AsyncIterator[Dict[str, Any]]:
     # We translate those into the SSEEvent schema the frontend understands.
     proposed_files: list[str] = []
     graph_completed = False
+    
+    # Track which files have been sent and tree state to avoid duplicate events
+    sent_file_contents: dict[str, str] = {}
+    last_tree_hash: str | None = None
 
     try:
         # Pass stream_mode="updates" to get state updates
@@ -119,6 +146,21 @@ async def run_agent(runId: str, prompt: str) -> AsyncIterator[Dict[str, Any]]:
                     extra={"run_id": runId, "name": name},
                 )
                 yield {"type": "tool_end", "runId": runId, "name": name, "status": "success"}
+                
+                # Print state to terminal after each node completes
+                try:
+                    snapshot = app_graph.get_state(config)
+                    state_values = snapshot.values or {}
+                    
+                    # Format state for terminal output
+                    print("\n" + "="*80)
+                    print(f"STATE AFTER NODE: {name}")
+                    print("="*80)
+                    print(json.dumps(state_values, indent=2, default=str))
+                    print("="*80 + "\n")
+                except Exception as e:
+                    logger.exception("Failed to print state after node", extra={"run_id": runId, "node": name})
+                    print(f"\n[ERROR] Failed to print state after node {name}: {str(e)}\n")
 
             # Handle custom events emitted by nodes (e.g. build output, awaiting approval)
             if event_type == "on_custom_event":
@@ -159,18 +201,55 @@ async def run_agent(runId: str, prompt: str) -> AsyncIterator[Dict[str, Any]]:
                 if not isinstance(chunk, dict):
                     continue
 
-                if "tree" in chunk:
-                    logger.debug("State update: tree", extra={"run_id": runId})
-                    yield {"type": "file_tree", "runId": runId, "tree": chunk["tree"]}
+                # Print state update to terminal after each state change
+                try:
+                    snapshot = app_graph.get_state(config)
+                    state_values = snapshot.values or {}
+                    
+                    # Format state for terminal output
+                    print("\n" + "="*80)
+                    print(f"STATE UPDATE AFTER NODE: {name}")
+                    print("="*80)
+                    print(json.dumps(state_values, indent=2, default=str))
+                    print("="*80 + "\n")
+                except Exception as e:
+                    logger.exception("Failed to print state update", extra={"run_id": runId, "node": name})
+                    print(f"\n[ERROR] Failed to print state update for node {name}: {str(e)}\n")
 
+                # Only emit file_tree if it actually changed
+                if "tree" in chunk:
+                    tree_str = json.dumps(chunk["tree"], sort_keys=True)
+                    tree_hash = hashlib.md5(tree_str.encode()).hexdigest()
+                    if tree_hash != last_tree_hash:
+                        logger.debug("State update: tree (changed)", extra={"run_id": runId})
+                        yield {"type": "file_tree", "runId": runId, "tree": chunk["tree"]}
+                        last_tree_hash = tree_hash
+
+                # Only emit file_content events when NOT in read-only nodes
+                # Files are only written when diffs are approved (outside graph), not during read phase
                 if "file_contents" in chunk and isinstance(chunk["file_contents"], dict):
-                    logger.debug(
-                        "State update: file_contents",
-                        extra={"run_id": runId, "file_count": len(chunk["file_contents"])},
-                    )
-                    for path, content in chunk["file_contents"].items():
-                        if isinstance(path, str) and isinstance(content, str):
-                            yield {"type": "file_content", "runId": runId, "path": path, "content": content}
+                    # Suppress file_content events for read-only nodes (files are only being read, not written)
+                    if name not in READ_ONLY_NODES:
+                        # Only emit for files that are new or changed
+                        new_or_changed = []
+                        for path, content in chunk["file_contents"].items():
+                            if isinstance(path, str) and isinstance(content, str):
+                                # Only emit if this is a new file or content changed
+                                if path not in sent_file_contents or sent_file_contents[path] != content:
+                                    yield {"type": "file_content", "runId": runId, "path": path, "content": content}
+                                    sent_file_contents[path] = content
+                                    new_or_changed.append(path)
+                        
+                        if new_or_changed:
+                            logger.debug(
+                                "State update: file_contents (new/changed)",
+                                extra={"run_id": runId, "file_count": len(new_or_changed), "files": new_or_changed},
+                            )
+                    else:
+                        # For read-only nodes, just track the files internally without emitting events
+                        for path, content in chunk["file_contents"].items():
+                            if isinstance(path, str) and isinstance(content, str):
+                                sent_file_contents[path] = content
 
                 # Handle diffs
                 if "diffs" in chunk and isinstance(chunk["diffs"], list):
@@ -284,6 +363,10 @@ async def resume_agent(
 
     config = {"configurable": {"thread_id": runId}}
     resume_value = {"approved": approved, "approved_files": approved_files}
+    
+    # Track tree and file contents to avoid duplicate events
+    last_tree_hash: str | None = None
+    sent_file_contents: dict[str, str] = {}
 
     try:
         async for ev in app_graph.astream_events(
@@ -308,6 +391,21 @@ async def resume_agent(
 
             if event_type == "on_chain_end" and name not in (None, "LangGraph"):
                 yield {"type": "tool_end", "runId": runId, "name": name, "status": "success"}
+                
+                # Print state to terminal after each node completes
+                try:
+                    snapshot = app_graph.get_state(config)
+                    state_values = snapshot.values or {}
+                    
+                    # Format state for terminal output
+                    print("\n" + "="*80)
+                    print(f"STATE AFTER NODE: {name}")
+                    print("="*80)
+                    print(json.dumps(state_values, indent=2, default=str))
+                    print("="*80 + "\n")
+                except Exception as e:
+                    logger.exception("Failed to print state after node", extra={"run_id": runId, "node": name})
+                    print(f"\n[ERROR] Failed to print state after node {name}: {str(e)}\n")
 
             if event_type == "on_custom_event":
                 event_data = data
@@ -325,12 +423,47 @@ async def resume_agent(
                 chunk = data.get("chunk") or {}
                 if not isinstance(chunk, dict):
                     continue
+
+                # Print state update to terminal after each state change
+                try:
+                    snapshot = app_graph.get_state(config)
+                    state_values = snapshot.values or {}
+                    
+                    # Format state for terminal output
+                    print("\n" + "="*80)
+                    print(f"STATE UPDATE AFTER NODE: {name}")
+                    print("="*80)
+                    print(json.dumps(state_values, indent=2, default=str))
+                    print("="*80 + "\n")
+                except Exception as e:
+                    logger.exception("Failed to print state update", extra={"run_id": runId, "node": name})
+                    print(f"\n[ERROR] Failed to print state update for node {name}: {str(e)}\n")
+
+                # Only emit file_tree if it actually changed
                 if "tree" in chunk:
-                    yield {"type": "file_tree", "runId": runId, "tree": chunk["tree"]}
+                    tree_str = json.dumps(chunk["tree"], sort_keys=True)
+                    tree_hash = hashlib.md5(tree_str.encode()).hexdigest()
+                    if tree_hash != last_tree_hash:
+                        yield {"type": "file_tree", "runId": runId, "tree": chunk["tree"]}
+                        last_tree_hash = tree_hash
+                
+                # Only emit file_content for files that are new or changed
+                # After resume, we're past the read-only phase, but still track changes
                 if "file_contents" in chunk and isinstance(chunk["file_contents"], dict):
+                    new_or_changed = []
                     for path, content in chunk["file_contents"].items():
                         if isinstance(path, str) and isinstance(content, str):
-                            yield {"type": "file_content", "runId": runId, "path": path, "content": content}
+                            # Only emit if this is a new file or content changed
+                            if path not in sent_file_contents or sent_file_contents[path] != content:
+                                yield {"type": "file_content", "runId": runId, "path": path, "content": content}
+                                sent_file_contents[path] = content
+                                new_or_changed.append(path)
+                    
+                    if new_or_changed:
+                        logger.debug(
+                            "State update: file_contents (new/changed)",
+                            extra={"run_id": runId, "file_count": len(new_or_changed), "files": new_or_changed},
+                        )
                 if "terminal_output" in chunk and isinstance(chunk["terminal_output"], list):
                     for line in chunk["terminal_output"]:
                         yield {"type": "terminal", "runId": runId, "line": line}

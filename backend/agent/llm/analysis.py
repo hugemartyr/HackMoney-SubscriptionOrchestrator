@@ -6,7 +6,7 @@ from config import settings
 from agent import prompts
 from agent.llm.utils import extract_text_from_content, extract_json_from_response
 
-async def analyze_context(prompt: str, files: Dict[str, str], memory: List[str], tree: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def analyze_context(prompt: str, files: Dict[str, str], memory: List[str], tree: Optional[Dict[str, Any]] = None, doc_context: str = "") -> Dict[str, Any]:
     """
     Analyze if we have enough context to proceed.
     Decides between: 'ready', 'missing_code', 'missing_docs', 'need_research'.
@@ -50,6 +50,13 @@ async def analyze_context(prompt: str, files: Dict[str, str], memory: List[str],
             context_parts.append("... (more files available)")
             break
             
+    file_context_str = "\n".join(context_parts) if context_parts else "No files loaded yet."
+    
+    # Add doc context info if available
+    if doc_context and len(doc_context.strip()) > 0:
+        doc_preview = doc_context[:500] if len(doc_context) > 500 else doc_context
+        context_parts.append(f"\n=== Documentation Retrieved ===\n{doc_preview}...\n(Total: {len(doc_context)} characters)")
+    
     file_context_str = "\n".join(context_parts) if context_parts else "No files loaded yet."
     
     # REMOVED: Early return when files is empty - now LLM can use tree to decide

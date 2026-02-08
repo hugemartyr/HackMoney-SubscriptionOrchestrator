@@ -8,6 +8,9 @@ from .context import (
 )
 from .architecture import (
     architect_node,
+    plan_review_and_doc_checklist_node,
+    retrieve_targeted_docs_node,
+    plan_correction_node,
     yellow_init_node,
     yellow_workflow_node,
     yellow_multiparty_node,

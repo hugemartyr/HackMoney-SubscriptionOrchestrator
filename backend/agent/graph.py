@@ -63,6 +63,11 @@ def start_agent_node(state: AgentState) -> AgentState:
         yellow_workflow_status = state.get("yellow_workflow_status") or "",
         yellow_versioned_status = state.get("yellow_versioned_status") or "",
         yellow_multiparty_status = state.get("yellow_multiparty_status") or "",
+        doc_retrieval_checklist = state.get("doc_retrieval_checklist") or [],
+        doc_retrieval_reasoning = state.get("doc_retrieval_reasoning") or "",
+        targeted_docs_retrieved = state.get("targeted_docs_retrieved") or False,
+        plan_corrections = state.get("plan_corrections") or [],
+        plan_correction_reasoning = state.get("plan_correction_reasoning") or "",
     )
 
 # Routing functions
@@ -98,8 +103,15 @@ def route_context_decision(state: AgentState) -> Literal["read_code", "retrieve_
     if files_to_read:
         return "read_code"
 
-    # 2) If we have essentially no code loaded yet, prefer reading code.
+    # 2) If we have essentially no code loaded yet, check if we need docs first.
+    # If docs haven't been retrieved and we're doing Yellow SDK integration, get docs first.
     if not file_contents:
+        # For Yellow SDK integration, docs are critical - retrieve them first if not done
+        if not docs_retrieved:
+            # Check if prompt suggests Yellow SDK integration
+            prompt_lower = (state.get("prompt", "") or "").lower()
+            if any(keyword in prompt_lower for keyword in ["yellow", "nitrolite", "sdk", "channel", "payment"]):
+                return "retrieve_docs"
         return "read_code"
 
     # 3) Classify missing_info into "file-like" vs "doc-like" vs "other".
@@ -186,6 +198,9 @@ workflow.add_node("retrieve_docs", nodes.retrieve_docs_node)
 workflow.add_node("research", nodes.research_node)
 workflow.add_node("update_memory", nodes.update_memory_node)
 workflow.add_node("architect", nodes.architect_node)
+workflow.add_node("plan_review_and_doc_checklist", nodes.plan_review_and_doc_checklist_node)
+workflow.add_node("retrieve_targeted_docs", nodes.retrieve_targeted_docs_node)
+workflow.add_node("plan_correction", nodes.plan_correction_node)
 workflow.add_node("write_code", nodes.write_code_node)
 workflow.add_node("yellow_init", nodes.yellow_init_node)
 workflow.add_node("yellow_workflow", nodes.yellow_workflow_node)
@@ -226,8 +241,11 @@ workflow.add_edge("retrieve_docs", "update_memory")
 workflow.add_edge("research", "update_memory")
 workflow.add_edge("update_memory", "context_check")
 
-# Main flow (architect sets plan + Yellow flags; then yellow_init)
-workflow.add_edge("architect", "yellow_init")
+# Main flow (architect → review → retrieve → correct → yellow_init)
+workflow.add_edge("architect", "plan_review_and_doc_checklist")
+workflow.add_edge("plan_review_and_doc_checklist", "retrieve_targeted_docs")
+workflow.add_edge("retrieve_targeted_docs", "plan_correction")
+workflow.add_edge("plan_correction", "yellow_init")
 
 workflow.add_conditional_edges(
     "yellow_init",

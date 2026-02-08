@@ -1,7 +1,8 @@
 from __future__ import annotations
+import asyncio
 
 from agent.state import AgentState
-from agent.llm.planning import generate_plan
+from agent.llm.planning import generate_plan, create_doc_retrieval_checklist, review_and_correct_plan
 from agent.llm.coding import write_code
 
 from agent.tools.yellow.yellow_initialiser import YellowInitializerTool
@@ -27,7 +28,11 @@ async def architect_node(state: AgentState) -> AgentState:
     Generate the integration plan and detect Yellow requirements via LLM.
     Sets plan_notes, sdk_version, and all needs_* / needs_*_tools from planner output.
     """
-    plan = await generate_plan(state.get("prompt", ""), state.get("file_contents", {}))
+    plan = await generate_plan(
+        state.get("prompt", ""), 
+        state.get("file_contents", {}),
+        state.get("doc_context", "")
+    )
 
     state["plan_notes"] = plan.get("notes_markdown", "")
     state["sdk_version"] = plan.get("yellow_sdk_version", "latest")
@@ -200,4 +205,127 @@ async def write_code_node(state: AgentState) -> AgentState:
     logger.info(f"merged diffs: {merged}")
     state["thinking_log"] = state.get("thinking_log", []) + [f"Generated {len(diffs)} file changes"]
     return state
+
+async def plan_review_and_doc_checklist_node(state: AgentState) -> AgentState:
+    """
+    Stage 1: Review architect's plan and create documentation retrieval checklist.
+    Reads: prompt, plan_notes, yellow requirements, tree, doc_context (if any)
+    Does NOT read: file_contents (code)
+    """
+    checklist_result = await create_doc_retrieval_checklist(
+        state.get("prompt", ""),
+        state.get("plan_notes", ""),
+        {
+            "needs_yellow": state.get("needs_yellow", False),
+            "needs_simple_channel": state.get("needs_simple_channel", False),
+            "needs_multiparty": state.get("needs_multiparty", False),
+            "needs_versioned": state.get("needs_versioned", False),
+            "needs_tip": state.get("needs_tip", False),
+            "needs_deposit": state.get("needs_deposit", False),
+        },
+        state.get("sdk_version", "latest"),
+        state.get("tree", {}),
+        state.get("doc_context", "")  # Previously retrieved docs if any
+    )
     
+    state["doc_retrieval_checklist"] = checklist_result.get("checklist", [])
+    state["doc_retrieval_reasoning"] = checklist_result.get("reasoning", "")
+    state["thinking_log"] = state.get("thinking_log", []) + [
+        f"Created documentation retrieval checklist with {len(checklist_result.get('checklist', []))} items"
+    ]
+    
+    return state
+
+async def retrieve_targeted_docs_node(state: AgentState) -> AgentState:
+    """
+    Stage 2: Retrieve documentation based on the checklist.
+    """
+    from utils.helper_functions import _search_docs_with_checklist
+    
+    checklist = state.get("doc_retrieval_checklist", [])
+    
+    if not checklist:
+        state["thinking_log"] = state.get("thinking_log", []) + [
+            "No checklist items, skipping targeted doc retrieval"
+        ]
+        return state
+    
+    try:
+        # Retrieve docs based on checklist
+        targeted_docs = await asyncio.to_thread(
+            _search_docs_with_checklist,
+            checklist
+        )
+        
+        # Merge with existing doc_context if any
+        existing_docs = state.get("doc_context", "")
+        if existing_docs:
+            state["doc_context"] = existing_docs + "\n\n=== Additional Targeted Documentation ===\n\n" + targeted_docs
+        else:
+            state["doc_context"] = targeted_docs
+        
+        state["targeted_docs_retrieved"] = True
+        state["thinking_log"] = state.get("thinking_log", []) + [
+            f"Retrieved targeted documentation for {len(checklist)} checklist items"
+        ]
+        
+        return state
+    except Exception as e:
+        state["targeted_docs_retrieved"] = True  # Mark as done to avoid loop
+        state["thinking_log"] = state.get("thinking_log", []) + [
+            f"Error retrieving targeted docs: {e}"
+        ]
+        return state
+
+async def plan_correction_node(state: AgentState) -> AgentState:
+    """
+    Stage 3: Review retrieved docs + architect's plan, identify issues, and correct.
+    """
+    correction_result = await review_and_correct_plan(
+        state.get("prompt", ""),
+        state.get("plan_notes", ""),
+        {
+            "needs_yellow": state.get("needs_yellow", False),
+            "needs_simple_channel": state.get("needs_simple_channel", False),
+            "needs_multiparty": state.get("needs_multiparty", False),
+            "needs_versioned": state.get("needs_versioned", False),
+            "needs_tip": state.get("needs_tip", False),
+            "needs_deposit": state.get("needs_deposit", False),
+        },
+        state.get("sdk_version", "latest"),
+        state.get("doc_context", ""),  # All retrieved docs (initial + targeted)
+        state.get("tree", {})
+    )
+    
+    # Update plan if corrections were made
+    if correction_result.get("plan_corrected", False):
+        state["plan_notes"] = correction_result.get("corrected_plan", state.get("plan_notes", ""))
+        state["sdk_version"] = correction_result.get("corrected_sdk_version", state.get("sdk_version", "latest"))
+        
+        # Update yellow requirements if corrected
+        corrected_requirements = correction_result.get("corrected_requirements", {})
+        if corrected_requirements:
+            state["needs_yellow"] = corrected_requirements.get("needs_yellow", state.get("needs_yellow", False))
+            state["needs_simple_channel"] = corrected_requirements.get("needs_simple_channel", state.get("needs_simple_channel", False))
+            state["needs_multiparty"] = corrected_requirements.get("needs_multiparty", state.get("needs_multiparty", False))
+            state["needs_versioned"] = corrected_requirements.get("needs_versioned", state.get("needs_versioned", False))
+            state["needs_tip"] = corrected_requirements.get("needs_tip", state.get("needs_tip", False))
+            state["needs_deposit"] = corrected_requirements.get("needs_deposit", state.get("needs_deposit", False))
+            
+            # Update tool flags
+            state["needs_yellow_tools"] = state["needs_yellow"]
+            state["needs_simple_channel_tools"] = state["needs_simple_channel"]
+            state["needs_multiparty_tools"] = state["needs_multiparty"]
+            state["needs_versioned_tools"] = state["needs_versioned"]
+            state["needs_tip_tools"] = state["needs_tip"]
+            state["needs_deposit_tools"] = state["needs_deposit"]
+    
+    state["plan_corrections"] = correction_result.get("corrections", [])
+    state["plan_correction_reasoning"] = correction_result.get("reasoning", "")
+    state["thinking_log"] = state.get("thinking_log", []) + [
+        f"Plan review completed: {len(correction_result.get('corrections', []))} corrections identified",
+        "Plan corrected" if correction_result.get("plan_corrected", False) else "Plan validated"
+    ]
+    
+    return state
+     

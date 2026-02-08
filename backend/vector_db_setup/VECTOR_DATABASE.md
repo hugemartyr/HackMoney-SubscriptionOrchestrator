@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the vector database implementation for the Yellow Network SDK documentation. The database uses **ChromaDB** as the vector store with **Google Generative AI embeddings** to enable semantic search for an autonomous agent that helps developers integrate the Yellow Network SDK.
+This document describes the vector database implementation for the Yellow Network SDK documentation. The database uses **ChromaDB** as the vector store with **OpenRouter embeddings** (OpenAI text-embedding-3-large) to enable semantic search for an autonomous agent that helps developers integrate the Yellow Network SDK.
 
 ## Architecture
 
@@ -54,23 +54,24 @@ This document describes the vector database implementation for the Yellow Networ
 
 ### Embedding Model
 
-- **Provider**: Google Generative AI
-- **Model**: `models/text-embedding-004`
-- **Dimensions**: 768
-- **API Key**: Required via `GOOGLE_API_KEY` environment variable
+- **Provider**: OpenRouter (OpenAI-compatible API)
+- **Model**: `text-embedding-3-large`
+- **Dimensions**: 3072
+- **API Key**: Required via `OPENROUTER_API_KEY` environment variable
 - **Configuration**:
   ```python
-  GoogleGenerativeAIEmbeddings(
-      model="models/text-embedding-004",
-      google_api_key=settings.GOOGLE_API_KEY,
+  OpenRouterEmbeddings(
+      model="text-embedding-3-large",
+      api_key=settings.OPENROUTER_API_KEY,
   )
   ```
 
 **Why this model?**
-- Strong performance on technical documentation and code
-- Good balance of quality and cost
-- Already integrated with Google Gemini for LLM tasks
-- 768 dimensions provide good semantic understanding
+- Excellent performance on technical documentation and code
+- Highest quality embeddings with 3072 dimensions
+- Better semantic understanding for complex queries
+- Cost-effective through OpenRouter's unified API
+- Compatible with OpenAI embedding models
 
 ## Document Schema
 
@@ -164,7 +165,7 @@ Use cases: use case 1, use case 2...
 
 ### Step 3: Metadata Normalization
 
-**Service**: `backend/services/vector_store.py`
+**Service**: `backend/agent/tools/vector_store.py`
 
 **Normalization Process**:
 - **List Fields → Strings**: Converts `keywords`, `function_names`, `use_cases` to comma-separated strings
@@ -178,7 +179,7 @@ Use cases: use case 1, use case 2...
 1. Load enriched documents from `backend/data/enriched_docs.json`
 2. Convert JSON to LangChain `Document` objects
 3. Normalize metadata for ChromaDB compatibility
-4. Generate embeddings using Google's text-embedding-004
+4. Generate embeddings using OpenRouter's text-embedding-3-large
 5. Store in ChromaDB with metadata
 
 ## Statistics
@@ -226,8 +227,10 @@ backend/
 │   │   ├── chroma.sqlite3      # SQLite database
 │   │   └── [uuid]/             # Binary index files
 │   └── enriched_docs.json       # Backup of enriched documents
+├── agent/
+│   └── tools/
+│       └── vector_store.py      # Vector store implementation (used by main app)
 ├── services/
-│   ├── vector_store.py          # Vector store implementation (used by main app)
 │   └── doc_enrichment.py        # AI enrichment service (used by main app)
 └── vector_db_setup/             # Setup scripts (not used by main app)
     ├── ingest_docs.py           # Full ingestion pipeline
@@ -243,18 +246,20 @@ backend/
 ### Environment Variables
 
 Required:
-- `GOOGLE_API_KEY`: Google API key for embeddings and LLM
+- `OPENROUTER_API_KEY`: OpenRouter API key for embeddings (and LLM)
 
 Optional:
+- `GOOGLE_API_KEY`: Google API key (legacy, for Google embeddings fallback)
 - `GOOGLE_MODEL`: LLM model for enrichment (default: `gemini-3-flash-preview`)
 
 ### Code Configuration
 
-**Vector Store** (`backend/services/vector_store.py`):
+**Vector Store** (`backend/agent/tools/vector_store.py`):
 ```python
 collection_name = "yellow_docs"
 persist_directory = "backend/data/chroma_db"
-embedding_model = "models/text-embedding-004"
+embedding_model = "text-embedding-3-large"
+embedding_provider = "OpenRouter"  # Uses OpenRouterEmbeddings class
 ```
 
 **Enrichment** (`backend/services/doc_enrichment.py`):
@@ -332,7 +337,7 @@ python vector_db_setup/load_enriched_to_vector_db.py
 - **Embedding Generation**: ~1-2 seconds per document (API call)
 - **Search Latency**: <100ms for semantic search
 - **Re-ranking Overhead**: ~10-20ms for metadata-based scoring
-- **Storage Size**: ~5-10MB for 335 documents
+- **Storage Size**: ~10-15MB for 335 documents (3072-dim embeddings)
 
 ## Future Enhancements
 
@@ -347,8 +352,9 @@ Potential improvements:
 
 ### Common Issues
 
-1. **"GOOGLE_API_KEY is not set"**
-   - Solution: Set `GOOGLE_API_KEY` in `.env` file
+1. **"OPENROUTER_API_KEY is not set"**
+   - Solution: Set `OPENROUTER_API_KEY` in `.env` file
+   - Note: The system defaults to OpenRouter embeddings. For Google embeddings, set `use_openrouter=False` when initializing `YellowVectorStore`
 
 2. **"Expected metadata value to be a str, int, float, bool, or None, got list"**
    - Solution: Metadata normalization should handle this automatically
@@ -367,5 +373,17 @@ Potential improvements:
 ## References
 
 - **ChromaDB**: https://www.trychroma.com/
-- **Google Generative AI Embeddings**: https://ai.google.dev/docs/embeddings
+- **OpenRouter API**: https://openrouter.ai/
+- **OpenAI Embeddings**: https://platform.openai.com/docs/guides/embeddings
 - **LangChain Chroma Integration**: https://python.langchain.com/docs/integrations/vectorstores/chroma
+
+## Cost Information
+
+### Embedding Costs (OpenRouter text-embedding-3-large)
+
+- **Initial Setup**: ~$0.02 for 335 documents (one-time)
+- **Per Query**: ~$0.0000065 per search query
+- **Monthly Estimate** (1,000 queries): ~$0.65
+- **Yearly Estimate** (12,000 queries): ~$7.80
+
+The large model provides superior quality for technical documentation at a reasonable cost.

@@ -12,6 +12,8 @@ from agent.prompts.prompts import (
     build_summary_prompt,
     build_fix_plan_prompt,
     build_escalation_prompt,
+    build_doc_checklist_prompt,
+    build_plan_correction_prompt,
 )
 from agent.prompts.yellow import YELLOW_PROMPTS_PLACEHOLDER
 
@@ -25,5 +27,7 @@ __all__ = [
     "build_summary_prompt",
     "build_fix_plan_prompt",
     "build_escalation_prompt",
+    "build_doc_checklist_prompt",
+    "build_plan_correction_prompt",
     "YELLOW_PROMPTS_PLACEHOLDER",
 ]

@@ -11,15 +11,85 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from config import settings
 
 
-class YellowVectorStore:
-    def __init__(self):
-        if not settings.GOOGLE_API_KEY:
-            raise ValueError("GOOGLE_API_KEY is not set. Cannot initialize embeddings.")
+class OpenRouterEmbeddings:
+    """Custom embedding class that uses OpenRouter API for embeddings."""
+    
+    def __init__(self, model: str = "text-embedding-3-large"):
+        """
+        Initialize OpenRouter embeddings.
+        
+        Args:
+            model: Embedding model name. OpenRouter supports:
+                   - text-embedding-3-small (1536 dims)
+                   - text-embedding-3-large (3072 dims)
+                   - text-embedding-ada-002 (1536 dims)
+        """
+        import requests
+        
+        self.api_key = settings.OPENROUTER_API_KEY
+        if not self.api_key:
+            raise ValueError("OPENROUTER_API_KEY is not set")
+        
+        self.model = model
+        self.base_url = "https://openrouter.ai/api/v1"
+        
+    def embed_query(self, text: str) -> List[float]:
+        """Embed a single query string."""
+        return self.embed_documents([text])[0]
+    
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """Embed multiple documents."""
+        import requests
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/your-repo",  # Optional
+            "X-Title": "Yellow Network SDK Agent",  # Optional
+        }
+        
+        # OpenRouter uses OpenAI-compatible endpoint
+        url = f"{self.base_url}/embeddings"
+        
+        embeddings = []
+        for text in texts:
+            payload = {
+                "model": self.model,
+                "input": text,
+            }
+            
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            
+            data = response.json()
+            embeddings.append(data["data"][0]["embedding"])
+        
+        return embeddings
 
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/text-embedding-004",
-            google_api_key=settings.GOOGLE_API_KEY,
-        )
+
+class YellowVectorStore:
+    def __init__(self, use_openrouter: bool = True):
+        """
+        Initialize vector store.
+        
+        Args:
+            use_openrouter: If True, use OpenRouter embeddings. If False, use Google.
+        """
+        if use_openrouter:
+            if not settings.OPENROUTER_API_KEY:
+                raise ValueError("OPENROUTER_API_KEY is not set. Cannot initialize embeddings.")
+            
+            # Use OpenRouter embeddings
+            self.embeddings = OpenRouterEmbeddings(model="text-embedding-3-large")
+        else:
+            # Original Google embeddings (for backward compatibility)
+            if not settings.GOOGLE_API_KEY:
+                raise ValueError("GOOGLE_API_KEY is not set. Cannot initialize embeddings.")
+            
+            self.embeddings = GoogleGenerativeAIEmbeddings(
+                model="models/text-embedding-004",
+                google_api_key=settings.GOOGLE_API_KEY,
+            )
 
         # Persist in backend/data/chroma_db
         # We assume this code runs from backend/ or root, so we resolve relative to this file

@@ -8,43 +8,50 @@ def _messages(*parts: tuple[str, str]) -> List[Dict[str, str]]:
     return [{"role": role, "content": content} for role, content in parts]
 
 
-def build_planner_prompt(prompt: str, context: str) -> List[Dict[str, str]]:
-    """Build messages for planning LLM. Returns JSON with plan + Yellow requirement flags."""
-    system = """You are a senior engineer helping integrate Yellow Network SDK into an existing project.
-    Analyze the user request and the repository context to produce a clear integration plan and detect which Yellow capabilities are required.
+def build_planner_prompt(prompt: str, docs_context: str, codebase_context: str) -> List[Dict[str, str]]:
+    system = """
+You are an expert senior engineer specializing in integrating Node.js SDKs with existing applications. 
+Your task is to integrate the Yellow SDK into a Node.js codebase based strictly on the official Yellow Network documentation provided.
 
-    Yellow tools – what they do and when to set each flag:
+Yellow SDK documentation covers:
+- What Yellow SDK is and its architecture
+- How the Nitrolite RPC protocol works
+- How to open and fund state channels
+- How to use NitroliteClient and RPC calls
+- Real examples of authentication, session keys, and channel operations
 
-    • yellow_network_workflow_tool: Proposes/runs Yellow/Nitrolite channel workflow (e.g. src/yellowWorkflow.ts). Use when the user needs channels, state updates, sandbox connections, or workflow execution. Set needs_yellow and needs_simple_channel to true when the request involves creating or running channels, state updates, or related network interactions.
+Analyze the user request, Yellow docs, and the repository context to produce:
 
-    • yellow_versioned_integration_tool: Installs or upgrades an integration scaffold (version.ts, config.ts, utils.ts, auth.ts). Use when the user needs a reusable SDK layer, scaffolding, versioning, or configuration. Set needs_versioned to true when the request involves integration layer, library setup, scaffold, abstraction, wrapper, or config/session.
+1) A clear integration plan
+2) A breakdown of features required from Yellow SDK
+3) SDK capabilities and flags that must be enabled (e.g., channels, multi-party state)
+4) Risks, important files, and next steps
 
-    • yellow_next_multi_party_full_lifecycle: Adds Next.js multiparty API route and script for multi-wallet/collaborative flows. Use when the user needs multiparty, multi-wallet, collaborative, multisig, shared session/state, counterparty, or allocation. Set needs_multiparty to true for such bilateral/consensus workflows.
+Return ONLY a JSON object with these exact keys:
+- notes_markdown: string
+- yellow_sdk_version: string
+- needs_sdk_core: boolean
+- needs_channels: boolean
+- needs_multi_party: boolean
+- needs_config: boolean
+- needs_rpc_calls: boolean
+- needs_event_listeners: boolean
 
-    • yellow_tip_tool: Injects src/lib/yellow/tip.ts for tipping and token movement. Use when the user needs tipping, payments, transfers, or donations. Set needs_tip to true when the request involves tip, send tip, transfer, pay, payment, donate, or donation.
-
-    • Yellow deposit tool: Injects src/lib/yellow/deposit.ts for USDC custody/deposit with viem chain resolution. Use when the user needs deposit, custody, funding, top-up, or Nitrolite deposit. Set needs_deposit to true when the request involves deposit, custody, fund, add funds, top up, or custody contract.
-
-    Return ONLY a single JSON object with these exact keys:
-    - notes_markdown: string (markdown summary of the plan: scope, steps, key files, risks)
-    - yellow_sdk_version: string (npm semver, e.g. "^1.2.3" or "latest")
-    - needs_yellow: boolean (true if user needs Yellow Network / Nitrolite / state channels / clearnode / off-chain / L3 / nitro)
-    - needs_simple_channel: boolean (true if user needs channel, nitrolite, create channel, open channel, state update, stateless)
-    - needs_multiparty: boolean (true if user needs multiparty, multi-party, two wallets, collaborative, multi-sig, shared state/session, participant, counterparty, bilateral, consensus, allocation)
-    - needs_versioned: boolean (true if user needs integration layer, versioned, library setup, scaffold, abstraction, wrapper, reusable, config/session)
-    - needs_tip: boolean (true if user needs tip, tipping, send tip, transfer, pay, payment, donate, donation)
-    - needs_deposit: boolean (true if user needs deposit, custody, fund, add funds, top up, custody contract, nitrolite deposit)
-
-    No additional keys. No surrounding text or markdown fences.
+Focus all reasoning on the Yellow docs, the protocol, and SDK behavior (e.g., NitroliteClient RPC, state channels, unified balance concepts).
     """
+
     user = (
         "User request:\n"
         f"{prompt}\n\n"
-        "Repository context (files/snippets):\n"
-        f"{context}\n\n"
-        "Generate the plan JSON with notes_markdown, yellow_sdk_version, and the six boolean Yellow flags (needs_yellow, needs_simple_channel, needs_multiparty, needs_versioned, needs_tip, needs_deposit) based on the user request."
+        "Repository / code context:\n"
+        f"{codebase_context}\n\n"
+        "Yellow documentation context:\n"
+        f"{docs_context}\n\n"
+        "Generate the JSON integration plan now."
     )
+
     return _messages(("system", system), ("user", user))
+
 
 
 def build_coder_prompt(
@@ -56,159 +63,195 @@ def build_coder_prompt(
     sdk_version: str,
     tool_diffs: List[Diff],
 ) -> List[Dict[str, str]]:
-    """Build messages for code generation LLM. file_context should include tool-proposed content. tool_diffs lists files already proposed by tools (each: file, oldCode, newCode)."""
-    system = (
-        "You are a senior engineer helping integrate Yellow Network SDK into an existing project.\n"
-        "Analyze the codebase, the plan, the integration rules, and the provided documentation to propose specific code changes.\n\n"
-        "Return ONLY a single JSON object. You may use either format:\n\n"
-        "Format A (search/replace, preferred for small edits):\n"
-        '  { "changes": [ { "file": "path/to/file.ext", "search": "exact unique string to find", "replace": "replacement string" } ] }\n\n'
-        "Format B (full-file diffs):\n"
-        '  { "diffs": [ { "file": "path/to/file.ext", "oldCode": "complete original content", "newCode": "complete modified content" } ] }\n\n'
-        "Rules:\n"
-        "- For search/replace: use a unique, exact search string (multiple lines ok); replace only what is necessary.\n"
-        "- For diffs: include the COMPLETE file content in both oldCode and newCode.\n"
-        "- Only propose changes to files that need Yellow SDK integration or that are listed in the plan.\n"
-        "- Be precise and maintain existing code style, indentation, and formatting.\n"
-        "- Return empty changes/diffs array if no changes are needed.\n"
-        "- FOLLOW THE INTEGRATION RULES (THE CONSTITUTION) STRICTLY.\n"
-        "- SDK version to use: " + sdk_version + "\n\n"
-        "No additional keys. No surrounding text or markdown fences."
-    )
-    tool_section = ""
-    if tool_diffs:
-        tool_files = [d.get("file", "") for d in tool_diffs if d.get("file")]
-        tool_section = (
-            "\n\n=== TOOL-PROPOSED CHANGES (already reflected in file contents below) ===\n"
-            "Files: " + ", ".join(tool_files) + "\n"
-            "You may refine these files or change any other file. Propose your final code changes as JSON (use 'changes' or 'diffs' as above).\n"
-        )
-    user_content = (
+    system = f"""
+You are an expert senior engineer integrating Node.js SDKs using provided documentation. 
+Your task is to write precise code changes for integrating the Yellow Network SDK into the existing Node.js repository.
+
+Use ONLY the given plan, Yellow documentation context (Nitrolite RPC, client, channel APIs), and existing repo files to determine:
+
+- Where SDK imports are needed
+- How to create/connect to a ClearNode via NitroliteClient
+- Where to add RPC calls for session auth, channel open/fund, and event listeners
+- Where type definitions, config files, environment variables, and setup scripts belong
+
+Return ONLY a SINGLE JSON object with either:
+
+Format A:
+{{
+  "changes": [
+    {{ "file": "path", "search": "unique string", "replace": "replacement string" }}
+  ]
+}}
+
+or
+
+Format B:
+{{
+  "diffs": [
+    {{
+      "file": "path",
+      "oldCode": "original content",
+      "newCode": "updated content with Yellow SDK integration"
+    }}
+  ]
+}}
+
+Follow these rules:
+- Use import examples and object shapes from Yellow SDK docs
+- Preserve existing code style
+- Reference real API calls such as createChannel, resizeChannel, auth calls
+- Use sdk_version: {sdk_version}
+- If tool_diffs were already applied, ensure consistency and refine where needed
+
+=== INTEGRATION RULES (THE CONSTITUTION) ===
+{rules}
+
+Return the JSON with your diffs/changes only.
+    """
+
+    user = (
         "=== USER QUERY ===\n"
         f"{user_query}\n\n"
-        "=== PLAN (integration plan) ===\n"
+        "=== INTEGRATION PLAN ===\n"
         f"{plan}\n\n"
-        "=== THE CONSTITUTION (integration rules – follow strictly) ===\n"
-        f"{rules}\n\n"
         "=== KNOWLEDGE BASE / DOCS (RAG context) ===\n"
         f"{rag_context}\n\n"
         "=== REPOSITORY FILES (current state; includes tool-proposed content where applicable) ===\n"
-        f"{file_context}"
-        f"{tool_section}\n\n"
+        f"{file_context}\n\n"
         "Generate the JSON with your proposed code changes now."
     )
-    return _messages(("system", system), ("user", user_content))
 
-
-def build_context_check_prompt(prompt: str, file_context_str: str, memory: Any) -> List[Dict[str, str]]:
-    """Build messages for context-check LLM. Returns JSON with status, missing_info, etc."""
-    system = (
-        "You are a senior engineer analyzing if we have enough context to proceed with Yellow Network SDK integration.\n"
-        "Return a JSON object with:\n"
-        "- status: 'ready' | 'missing_code' | 'missing_docs' | 'need_research'\n"
-        "- missing_info: list of strings (what specifically is missing)\n"
-        "- files_to_read: list of strings (specific file paths to read if status is 'missing_code')\n"
-        "- reason: string (brief explanation)\n\n"
-        "No additional keys. No surrounding text."
-    )
-    user = (
-        f"User prompt: {prompt}\n\n"
-        "Current files / code context:\n"
-        f"{file_context_str}\n\n"
-        "Session memory (previous actions/attempts):\n"
-        f"{memory}\n\n"
-        "Do we have enough information to proceed? Generate JSON only."
-    )
     return _messages(("system", system), ("user", user))
+
+
+
+def build_context_check_prompt(prompt: str, code_context: str, memory: Any) -> List[Dict[str, str]]:
+    system = """
+You are an expert engineer evaluating whether we have enough context to proceed with Yellow SDK integration.
+Return ONLY a JSON with:
+- status: 'ready' | 'need_code' | 'need_docs' | 'need_research'
+- missing_info: [string]
+- files_to_read: [string]
+- reason: string
+
+Focus on whether:
+- SDK docs are present
+- key code references exist
+- required config/setup files might be missing
+    """
+
+    user = (
+        f"Prompt:\n{prompt}\n\n"
+        "Codebase context:\n"
+        f"{code_context}\n\n"
+        "Session memory:\n"
+        f"{memory}\n\n"
+        "Generate JSON now."
+    )
+
+    return _messages(("system", system), ("user", user))
+
 
 
 def build_import_analysis_prompt(context: str) -> List[Dict[str, str]]:
-    """Build messages for import analysis LLM."""
-    system = (
-        "You are analyzing project dependencies and imports for Yellow Network SDK integration.\n"
-        "Return a JSON object with:\n"
-        "- imports: list of strings (notable import paths or module names)\n"
-        "- dependencies: list of strings (package names from package.json or equivalent)\n"
-        "- yellow_sdk_present: boolean (whether Yellow SDK or related packages are already present)\n\n"
-        "No additional keys. No surrounding text."
-    )
+    system = """
+You are a system that analyzes imports and dependencies for a Node.js codebase intended to integrate the Yellow Network SDK.
+
+From the provided code and docs, determine:
+- Notable imported modules
+- Whether @erc7824/nitrolite or related packages are already present
+- Missing parts required for Yellow integration
+
+Return ONLY a JSON with:
+- imports: [string]
+- dependencies: [string]
+- yellow_sdk_present: boolean
+
+Focus all answers strictly on Yellow SDK package names, types, and docs.
+    """
+
     user = (
-        "Code/package context:\n"
+        "Code and package context:\n"
         f"{context}\n\n"
-        "Analyze imports and dependencies. Generate JSON only."
+        "Analyze imports and dependencies; generate JSON now."
     )
+
     return _messages(("system", system), ("user", user))
 
 
-def build_research_prompt(query: str, file_context: str, docs_context: str) -> List[Dict[str, str]]:
-    """Build messages for research LLM."""
-    system = (
-        "You are a technical researcher gathering information for Yellow Network SDK integration.\n"
-        "Analyze code snippets and documentation. Return a JSON object with:\n"
-        "- findings: string (markdown summary of what you learned)\n"
-        "- useful_snippets: list of strings (relevant code or doc excerpts)\n"
-        "- next_steps: list of strings (recommended next actions)\n\n"
-        "No additional keys. No surrounding text."
-    )
+
+def build_research_prompt(query: str, code_context: str, docs_context: str) -> List[Dict[str, str]]:
+    system = """
+You are a researcher gathering insights for Node.js SDK integration using the Yellow Network docs.
+
+Return ONLY a JSON with:
+- findings: string (markdown summary of what you learned)
+- relevant_snippets: [string] (from docs/code)
+- next_steps: [string] (recommended clear actions)
+
+Focus all answers on things like:
+- Nitrolite RPC calls and usage
+- How to open/fund channels
+- How to auth with session keys
+- Real Node.js usage examples
+    """
+
     user = (
-        f"Research query: {query}\n\n"
-        "Relevant code context:\n"
-        f"{file_context}\n\n"
-        "Documentation / knowledge base:\n"
+        f"Research query:\n{query}\n\n"
+        "Repository context:\n"
+        f"{code_context}\n\n"
+        "Yellow docs context:\n"
         f"{docs_context}\n\n"
-        "Synthesize findings and suggest next steps. Generate JSON only."
+        "Generate JSON now."
     )
+
     return _messages(("system", system), ("user", user))
+
 
 
 def build_error_analysis_prompt(build_output: str, context_note: str = "") -> List[Dict[str, str]]:
-    """Build messages for error analysis LLM."""
-    system = (
-        "You are a debugging expert analyzing build/test errors for Yellow Network SDK integration.\n"
-        "Analyze the error log and return a JSON object with:\n"
-        "- error_type: string (e.g. compile error, type error, missing dependency)\n"
-        "- root_cause: string (brief explanation of what caused the error)\n"
-        "- fix_suggestion: string (concrete steps or code changes to fix it)\n"
-        "- relevant_files: list of strings (file paths that likely need to be fixed)\n\n"
-        "No additional keys. No surrounding text."
-    )
+    system = """
+You are an expert debugger analyzing build/test errors related to Yellow SDK integration.
+Return ONLY a JSON with:
+- error_type
+- root_cause
+- fix_suggestion
+- relevant_files
+
+Use knowledge of TypeScript/Node.js and how Yellow SDK functions (rpc calls, types, channel errors) to explain errors.
+    """
+
     user = (
-        "Build/test output:\n"
-        f"{build_output}\n\n"
+        f"Build output:\n{build_output}\n\n"
         f"{context_note}\n\n"
-        "Analyze the error and suggest fixes. Generate JSON only."
+        "Yellow docs context is assumed.\n"
+        "Generate JSON now."
     )
+
     return _messages(("system", system), ("user", user))
 
 
-def build_summary_prompt(
-    thinking_log: List[str],
-    diffs: List[Any],
-    build_success: bool,
-    error_count: int,
-) -> List[Dict[str, str]]:
-    """Build messages for final summary LLM."""
-    system = (
-        "You are generating a final summary of the Yellow Network SDK integration session.\n"
-        "Return a markdown string (not JSON) that summarizes:\n"
-        "- What was achieved (integration steps completed)\n"
-        "- Files changed (list or summary)\n"
-        "- Build status (success/failure)\n"
-        "- Next steps for the user (if any)\n\n"
-        "Be concise, professional, and use a 'Cursor'-style tone: helpful and direct."
-    )
-    log_str = "\n".join(thinking_log[-20:]) if thinking_log else "No log"
-    diff_files = [d.get("file", "unknown") for d in diffs] if diffs else []
+
+def build_summary_prompt(thinking_log, diffs, build_success, error_count):
+    system = """
+You are summarizing the integration session with the Yellow Network SDK.
+Return a markdown summary describing:
+- What was achieved
+- Which files were changed
+- Build status
+- Remaining tasks
+    """
+
     user = (
-        "Thinking log (excerpt):\n"
-        f"{log_str}\n\n"
+        "Thinking log snippet:\n" + "\n".join(thinking_log[-20:]) + "\n\n"
         f"Diffs count: {len(diffs)}\n"
-        f"Files changed: {', '.join(diff_files) if diff_files else 'none'}\n"
         f"Build success: {build_success}\n"
         f"Error count: {error_count}\n\n"
-        "Write the final summary in markdown."
+        "Write the markdown summary now."
     )
+
     return _messages(("system", system), ("user", user))
+
 
 
 def build_fix_plan_prompt(error_analysis: Dict[str, Any], file_context: str) -> List[Dict[str, str]]:
@@ -247,4 +290,108 @@ def build_escalation_prompt(error_context: str, attempted_fixes: List[str]) -> L
         f"{fixes_str}\n\n"
         "Generate the escalation JSON for human review."
     )
+    return _messages(("system", system), ("user", user))
+
+def build_doc_checklist_prompt(
+    prompt: str,
+    plan_notes: str,
+    yellow_requirements: str,
+    sdk_version: str,
+    tree_structure: str,
+    existing_docs: str = ""
+) -> List[Dict[str, str]]:
+    """
+    Prompt for creating documentation retrieval checklist.
+    Does NOT include code - only plan, requirements, and structure.
+    """
+    system = """
+You are an expert at analyzing integration plans and determining what documentation is needed.
+
+You understand Yellow Network SDK architecture:
+- NitroLite protocol and RPC communication
+- Channel creation, funding, and management
+- Authentication and session management
+- Multiparty channels and versioned state
+- Tipping and deposit operations
+
+Your task: Review the architect's plan and yellow requirements, then create a checklist of 
+specific documentation topics/queries that need to be retrieved from the vector database.
+
+Consider:
+- What Yellow SDK features are mentioned in the plan
+- What operations are required (channels, auth, payments, etc.)
+- What API calls, classes, or concepts need documentation
+- What might be missing or unclear in the current plan
+
+Return ONLY a JSON object with:
+- checklist: [string] (list of 5-10 specific documentation search queries/topics)
+- reasoning: string (explanation of why these docs are needed)
+    """
+
+    existing_docs_note = ""
+    if existing_docs and len(existing_docs.strip()) > 0:
+        existing_docs_note = f"\n\nNote: Some documentation has already been retrieved:\n{existing_docs[:500]}...\n(Focus on gaps and missing information)"
+    
+    user = (
+        f"User Request:\n{prompt}\n\n"
+        f"Architect's Plan:\n{plan_notes}\n\n"
+        f"Yellow Requirements:\n{yellow_requirements}\n\n"
+        f"SDK Version: {sdk_version}\n\n"
+        f"Repository Structure:\n{tree_structure}\n\n"
+        f"{existing_docs_note}\n\n"
+        "Create a documentation retrieval checklist. Return JSON."
+    )
+
+    return _messages(("system", system), ("user", user))
+
+def build_plan_correction_prompt(
+    prompt: str,
+    plan_notes: str,
+    yellow_requirements: str,
+    sdk_version: str,
+    doc_context: str,
+    tree_structure: str
+) -> List[Dict[str, str]]:
+    """
+    Prompt for reviewing and correcting the architect's plan.
+    Uses retrieved documentation to validate and fix the plan.
+    """
+    system = """
+You are an expert at reviewing integration plans against Yellow Network SDK documentation.
+
+You understand:
+- Yellow Network SDK architecture and best practices
+- Common mistakes in integration plans
+- How to match requirements with actual SDK capabilities
+- What features are actually available vs what was assumed
+
+Your task: Review the architect's plan and yellow requirements against the retrieved 
+Yellow SDK documentation. Identify:
+1. Incorrect assumptions about SDK capabilities
+2. Missing or incorrect API calls
+3. Wrong feature flags or requirements
+4. Architectural issues or misunderstandings
+5. SDK version compatibility issues
+
+Then correct the plan and requirements to align with actual SDK documentation.
+
+Return ONLY a JSON object with:
+- plan_corrected: boolean (whether plan was corrected)
+- corrected_plan: string (corrected plan notes, or original if no changes)
+- corrected_sdk_version: string (corrected version if needed)
+- corrected_requirements: {needs_yellow: bool, needs_simple_channel: bool, needs_multiparty: bool, needs_versioned: bool, needs_tip: bool, needs_deposit: bool}
+- corrections: [string] (list of issues found and fixed)
+- reasoning: string (explanation of corrections)
+    """
+
+    user = (
+        f"User Request:\n{prompt}\n\n"
+        f"Architect's Original Plan:\n{plan_notes}\n\n"
+        f"Original Yellow Requirements:\n{yellow_requirements}\n\n"
+        f"Original SDK Version: {sdk_version}\n\n"
+        f"Repository Structure:\n{tree_structure}\n\n"
+        f"Retrieved Yellow SDK Documentation:\n{doc_context}\n\n"
+        "Review the plan against the documentation. Identify issues and correct them. Return JSON."
+    )
+
     return _messages(("system", system), ("user", user))

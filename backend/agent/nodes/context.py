@@ -15,7 +15,8 @@ async def context_check_node(state: AgentState) -> AgentState:
         state.get("prompt", ""), 
         state.get("file_contents", {}),
         state.get("session_memory", []),
-        state.get("tree")  # Pass tree to analyze_context
+        state.get("tree"),  # Pass tree to analyze_context
+        state.get("doc_context", "")  # Pass doc_context so LLM knows if docs are already retrieved
     )
     
     status = result.get("status", "ready")

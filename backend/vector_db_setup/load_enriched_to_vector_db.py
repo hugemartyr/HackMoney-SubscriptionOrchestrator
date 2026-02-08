@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Load enriched documents from JSON and populate vector DB."""
+"""Load enriched documents from JSON and populate vector DB with OpenRouter embeddings."""
 import json
 import sys
+import shutil
 from pathlib import Path
 
 # Add backend directory to sys.path
@@ -32,7 +33,6 @@ def main():
     # Convert JSON to Document objects
     documents = []
     for item in enriched_data:
-        # Remove 'enriched' flag from metadata if present
         metadata = item["metadata"].copy()
         metadata.pop("enriched", None)
         
@@ -41,14 +41,31 @@ def main():
             metadata=metadata
         ))
     
-    print("\nInitializing Vector Store...")
-    print("Using embeddings: Google Generative AI (models/text-embedding-004)")
-    vector_store = YellowVectorStore()
+    print("\nInitializing Vector Store with OpenRouter embeddings...")
+    print("Using embeddings: OpenRouter (text-embedding-3-large)")
+    
+    # Delete old database first
+    chroma_dir = backend_root / "data" / "chroma_db"
+    if chroma_dir.exists():
+        print(f"\n⚠️  Deleting old database at {chroma_dir}...")
+        shutil.rmtree(chroma_dir)
+        print("✅ Old database deleted")
+    
+    # Create new vector store with OpenRouter
+    vector_store = YellowVectorStore(use_openrouter=True)
     
     print("Adding documents to ChromaDB (with metadata normalization)...")
-    vector_store.add_documents(documents)
+    print(f"Processing {len(documents)} documents...")
     
-    print(f"✅ Successfully added {len(documents)} documents to ChromaDB!")
+    # Process in batches to show progress
+    batch_size = 50
+    for i in range(0, len(documents), batch_size):
+        batch = documents[i:i + batch_size]
+        vector_store.add_documents(batch)
+        print(f"   Processed {min(i + batch_size, len(documents))}/{len(documents)} documents...")
+    
+    print(f"\n✅ Successfully added {len(documents)} documents to ChromaDB!")
+    print("✅ Database rebuilt with OpenRouter embeddings!")
 
 if __name__ == "__main__":
     main()

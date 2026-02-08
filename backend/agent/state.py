@@ -80,3 +80,10 @@ class AgentState(TypedDict, total=False):
     final_summary: str  # Final explanation (Cursor-style)
     terminal_output: List[str]  # Terminal output lines for streaming
     error_analysis: Dict[str, Any]  # Error analysis results from error_analysis_node
+    
+    # Post-architect review fields
+    doc_retrieval_checklist: List[str]  # Checklist of docs to retrieve
+    doc_retrieval_reasoning: str  # Reasoning for checklist
+    targeted_docs_retrieved: bool  # Whether targeted docs were retrieved
+    plan_corrections: List[str]  # List of corrections made
+    plan_correction_reasoning: str  # Reasoning for corrections
