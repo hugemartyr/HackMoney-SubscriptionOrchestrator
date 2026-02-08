@@ -19,7 +19,8 @@ install:
 
 backend:
 	@echo "Starting Backend on http://localhost:8000..."
-	@cd backend && source .venv/bin/activate && python -m uvicorn main:app --reload
+	@cd backend && source .venv/bin/activate 
+	@pip3.12 install -r requirements.txt && python3.12 -m uvicorn main:app --reload
 
 dashboard:
 	@echo "Starting Agent-Nexus Dashboard on http://localhost:8080..."
