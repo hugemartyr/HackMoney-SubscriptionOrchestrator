@@ -57,59 +57,35 @@ Focus all reasoning on the Yellow docs, the protocol, and SDK behavior (e.g., Ni
 def build_coder_prompt(
     user_query: str,
     plan: str,
-    rules: str,
     rag_context: str,
     file_context: str,
     sdk_version: str,
     tool_diffs: List[Diff],
 ) -> List[Dict[str, str]]:
-    system = f"""
-You are an expert senior engineer integrating Node.js SDKs using provided documentation. 
-Your task is to write precise code changes for integrating the Yellow Network SDK into the existing Node.js repository.
-
-Use ONLY the given plan, Yellow documentation context (Nitrolite RPC, client, channel APIs), and existing repo files to determine:
-
-- Where SDK imports are needed
-- How to create/connect to a ClearNode via NitroliteClient
-- Where to add RPC calls for session auth, channel open/fund, and event listeners
-- Where type definitions, config files, environment variables, and setup scripts belong
-
-Return ONLY a SINGLE JSON object with either:
-
-Format A:
-{{
-  "changes": [
-    {{ "file": "path", "search": "unique string", "replace": "replacement string" }}
-  ]
-}}
-
-or
-
-Format B:
-{{
-  "diffs": [
-    {{
-      "file": "path",
-      "oldCode": "original content",
-      "newCode": "updated content with Yellow SDK integration"
-    }}
-  ]
-}}
-
-Follow these rules:
-- Use import examples and object shapes from Yellow SDK docs
-- Preserve existing code style
-- Reference real API calls such as createChannel, resizeChannel, auth calls
-- Use sdk_version: {sdk_version}
-- If tool_diffs were already applied, ensure consistency and refine where needed
-
-=== INTEGRATION RULES (THE CONSTITUTION) ===
-{rules}
-
-Return the JSON with your diffs/changes only.
-    """
-
-    user = (
+    """Build messages for code generation LLM. file_context should include tool-proposed content. tool_diffs lists files already proposed by tools (each: file, oldCode, newCode)."""
+    system = (
+        "You are a senior engineer helping integrate Yellow Network SDK into an existing project.\n"
+        "Analyze the codebase, the plan, the integration rules, and the provided documentation to propose specific code changes.\n\n"
+        "Return ONLY a single JSON object. Use the format:\n\n"
+        '  { "diffs": [ { "file": "path/to/file.ext", "oldCode": "complete original content", "newCode": "complete modified content" } ] }\n\n'
+        "Rules:\n"
+        "- For search/replace: use a unique, exact search string (multiple lines ok); replace only what is necessary.\n"
+        "- For diffs: include the COMPLETE file content in both oldCode and newCode.\n"
+        "- Be precise and maintain existing code style, indentation, and formatting.\n"
+        "- Return empty changes/diffs array if no changes are needed.\n"
+        "- FOLLOW THE INTEGRATION RULES (THE CONSTITUTION) STRICTLY.\n"
+        "- SDK version to use: " + sdk_version + "\n\n"
+        "No additional keys. No surrounding text or markdown fences."
+    )
+    tool_section = ""
+    if tool_diffs:
+        tool_files = [d.get("file", "") for d in tool_diffs if d.get("file")]
+        tool_section = (
+            "\n\n=== TOOL-PROPOSED CHANGES (already reflected in file contents below) ===\n"
+            "Files: " + ", ".join(tool_files) + "\n"
+            "You may refine these files or change any other file. Propose your final code changes as JSON (use 'changes' or 'diffs' as above).\n"
+        )
+    user_content = (
         "=== USER QUERY ===\n"
         f"{user_query}\n\n"
         "=== INTEGRATION PLAN ===\n"
@@ -118,10 +94,11 @@ Return the JSON with your diffs/changes only.
         f"{rag_context}\n\n"
         "=== REPOSITORY FILES (current state; includes tool-proposed content where applicable) ===\n"
         f"{file_context}\n\n"
+        f"{tool_section}\n"
         "Generate the JSON with your proposed code changes now."
     )
 
-    return _messages(("system", system), ("user", user))
+    return _messages(("system", system), ("user", user_content))
 
 
 

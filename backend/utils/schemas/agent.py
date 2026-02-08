@@ -17,6 +17,8 @@ class DiffApproveRequest(BaseModel):
 class ApplyAllRequest(BaseModel):
     runId: Optional[str] = Field(default=None, max_length=128)
     approved: bool
+    """When True (default) and runId is set, stream resume after apply/discard. When False, only apply/discard and return JSON."""
+    andResume: bool = True
 
 
 class ResumeRequest(BaseModel):

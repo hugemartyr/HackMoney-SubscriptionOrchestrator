@@ -88,6 +88,30 @@ export function useAgentStream() {
     }
   };
 
+  const consumeResumeStream = async (response: Response) => {
+    if (!response.body) return;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data: SSEEvent = JSON.parse(line.replace('data: ', ''));
+            handleEvent(data);
+          } catch (e) {
+            console.error('Stream parse error', e);
+          }
+        }
+      }
+    }
+  };
+
   const resumeAgent = async (runId: string, approved: boolean) => {
     if (isStreaming) return;
     if (!runId) {
@@ -100,27 +124,7 @@ export function useAgentStream() {
       if (!response.ok) {
         throw new Error(`Resume failed: ${response.status}`);
       }
-      if (!response.body) return;
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data: SSEEvent = JSON.parse(line.replace('data: ', ''));
-              handleEvent(data);
-            } catch (e) {
-              console.error('Stream parse error', e);
-            }
-          }
-        }
-      }
+      await consumeResumeStream(response);
     } catch (err) {
       setLogs(prev => [...prev, `❌ Error resuming agent`]);
       console.error(err);
@@ -184,6 +188,7 @@ export function useAgentStream() {
         break;
 
       case 'diff':
+        if (event.runId) setActiveRunId(event.runId);
         addPendingDiff({
           file: event.file,
           oldCode: event.oldCode,
@@ -199,6 +204,7 @@ export function useAgentStream() {
         break;
 
       case 'proposed_file': {
+        if (event.runId) setActiveRunId(event.runId);
         // Preferred event for editor proposals
         const diffTabPath = `__diff__/${event.path}`;
         updateFileContent(diffTabPath, event.content);
@@ -240,5 +246,20 @@ export function useAgentStream() {
     }
   };
 
-  return { startAgent, resumeAgent, logs, isStreaming };
+  /** Consume an SSE resume/apply stream (e.g. from apply endpoint) and update streaming state. */
+  const resumeFromStream = async (response: Response) => {
+    if (isStreaming) return;
+    setIsStreaming(true);
+    try {
+      if (!response.ok) throw new Error(`Stream failed: ${response.status}`);
+      await consumeResumeStream(response);
+    } catch (err) {
+      setLogs(prev => [...prev, `❌ Error resuming agent`]);
+      console.error(err);
+    } finally {
+      setIsStreaming(false);
+    }
+  };
+
+  return { startAgent, resumeAgent, consumeResumeStream, resumeFromStream, logs, isStreaming };
 }

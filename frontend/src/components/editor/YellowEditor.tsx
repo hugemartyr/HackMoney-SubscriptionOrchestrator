@@ -51,7 +51,7 @@ export default function YellowEditor() {
     <div className="h-full w-full flex flex-col">
       <EditorTabs />
       {isAgentEditing && (
-        <div className="px-4 py-2 bg-yellow-500/20 border-b border-yellow-500/50 text-yellow-400 text-xs font-semibold">
+        <div className="px-4 py-2 bg-primary/20 border-b border-primary/50 text-emerald-glow text-xs font-semibold">
           Agent is editing this file...
         </div>
       )}
@@ -74,8 +74,8 @@ export default function YellowEditor() {
             modified={
               state.currentFile
                 ? (state.draftContents[state.currentFile] ??
-                   state.fileContents[state.currentFile] ??
-                   '')
+                  state.fileContents[state.currentFile] ??
+                  '')
                 : ''
             }
             theme="vs-dark"
@@ -105,8 +105,8 @@ export default function YellowEditor() {
             value={
               state.currentFile
                 ? (state.draftContents[state.currentFile] ??
-                   state.fileContents[state.currentFile] ??
-                   "// File content loading...")
+                  state.fileContents[state.currentFile] ??
+                  "// File content loading...")
                 : "// Select a file from the explorer..."
             }
             onChange={(val) => {

@@ -34,12 +34,22 @@ READ_ONLY_NODES = {
     "yellow_deposit",
 }
 
+# Last run id passed to run_agent (so apply/resume can use it when client omits runId)
+_LAST_AGENT_RUN_ID: str | None = None
+
+
+def get_last_agent_run_id() -> str | None:
+    """Return the run id of the most recent agent stream (for apply/resume when client omits runId)."""
+    return _LAST_AGENT_RUN_ID
+
 
 async def run_agent(runId: str, prompt: str) -> AsyncIterator[Dict[str, Any]]:
     """
     Minimal runner that emits frontend-compatible SSE events.
     Backed by LangGraph workflow.
     """
+    global _LAST_AGENT_RUN_ID
+    _LAST_AGENT_RUN_ID = runId
     logger.debug(
         "run_agent started",
         extra={"run_id": runId, "prompt_length": len(prompt), "prompt_preview": prompt[:200]},
@@ -353,7 +363,8 @@ async def resume_agent(
     runId: str, approved: bool, approved_files: List[str]
 ) -> AsyncIterator[Dict[str, Any]]:
     """
-    Resume the graph after HITL approval. Applies Command(resume=...) to continue from interrupt.
+    Resume the graph after HITL approval. Uses checkpoint state + resume_from_approval
+    so the entry router sends the run to coding → build → ... (no interrupt resume).
     """
     logger.debug(
         "resume_agent started",
@@ -362,15 +373,30 @@ async def resume_agent(
     yield {"type": "thought", "runId": runId, "content": "Resuming after user approval..."}
 
     config = {"configurable": {"thread_id": runId}}
-    resume_value = {"approved": approved, "approved_files": approved_files}
     
     # Track tree and file contents to avoid duplicate events
     last_tree_hash: str | None = None
     sent_file_contents: dict[str, str] = {}
 
     try:
+        # Load checkpoint state from the interrupted run, then continue from coding
+        snapshot = app_graph.get_state(config)
+        if not snapshot or not snapshot.values:
+            logger.warning("No checkpoint state for run_id=%s, trying Command(resume=...)", runId)
+            resume_value = {"approved": approved, "approved_files": approved_files}
+            stream_input = Command(resume=resume_value)
+        else:
+            # Merge approval into checkpoint state and run from entry (resume_router → coding)
+            values = dict(snapshot.values)
+            values["resume_from_approval"] = True
+            values["approved"] = approved
+            values["approved_files"] = approved_files
+            values["awaiting_approval"] = False
+            values["pending_approval_files"] = []
+            stream_input = values
+
         async for ev in app_graph.astream_events(
-            Command(resume=resume_value), config=config, version="v2"
+            stream_input, config=config, version="v2"
         ):
             name = ev.get("name")
             event_type = ev.get("event")

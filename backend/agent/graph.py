@@ -184,12 +184,29 @@ def route_after_yellow(state: AgentState) -> Literal["yellow_multiparty"]:
     """
     After Yellow versioned integration, route to multiparty flow.
     """
-    return "yellow_multiparty"      
+    return "yellow_multiparty"
+
+
+def route_resume(state: AgentState) -> Literal["start_agent", "coding"]:
+    """
+    Entry router: when user has approved/discarded files from the frontend,
+    continue from coding. Otherwise start the normal agent flow.
+    """
+    if state.get("resume_from_approval"):
+        return "coding"
+    return "start_agent"
+
+
+def resume_router_node(state: AgentState) -> AgentState:
+    """No-op entry node; routing is done by route_resume conditional edge."""
+    return state
+
 
 # Build the graph
 workflow = StateGraph(AgentState)
 
 # Add nodes
+workflow.add_node("resume_router", resume_router_node)
 workflow.add_node("start_agent", start_agent_node)
 workflow.add_node("context_check", nodes.context_check_node)
 workflow.add_node("read_code", nodes.read_code_node)
@@ -217,8 +234,13 @@ workflow.add_node("fix_plan", nodes.fix_plan_node)
 workflow.add_node("escalation", nodes.escalation_node)
 workflow.add_node("summary", nodes.summary_node)
 
-# Set entry point
-workflow.set_entry_point("start_agent")
+# Set entry point: router decides start_agent (new run) vs coding (resume after approval)
+workflow.set_entry_point("resume_router")
+workflow.add_conditional_edges(
+    "resume_router",
+    route_resume,
+    {"start_agent": "start_agent", "coding": "coding"},
+)
 
 workflow.add_edge("start_agent", "context_check")
 

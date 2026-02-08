@@ -187,23 +187,34 @@ async def write_code_node(state: AgentState) -> AgentState:
         state.get("tool_diffs", [])
     )
 
-    diffs = state.get("diffs", []) or []
-    diffs.extend(llm_diffs)
-
-    logger.info(f"Generated {len(llm_diffs)} LLM file changes, merged to {len(diffs)} total changes")
-
-    # Merge tool_diffs and llm_diffs, prefer llm_diffs where conflicts (same file) exist
+    # Merge tool_diffs and llm_diffs; prefer llm_diffs where same file is modified
     tool_diffs = state.get("tool_diffs", []) or []
-    llm_paths = {d.get("file", "") for d in llm_diffs}
-    # Filter out tool_diffs that conflict with llm_diffs
-    merged = [d for d in tool_diffs if d.get("path") not in llm_paths]
-    merged.extend(llm_diffs)
-    state["diffs"] = merged
+    tool_files = {d.get("file", "") for d in tool_diffs}
+    llm_files = {d.get("file", "") for d in llm_diffs}
+
+    # For files common to both tool_diffs and llm_diffs, create a merged diff:
+    file_to_tool_diff = {d.get("file", ""): d for d in tool_diffs}
+    file_to_llm_diff = {d.get("file", ""): d for d in llm_diffs}
+
+    merged = []
     
-    logger.info(f"tool diffs: {tool_diffs}")
-    logger.info(f"llm diffs: {llm_diffs}")
-    logger.info(f"merged diffs: {merged}")
-    state["thinking_log"] = state.get("thinking_log", []) + [f"Generated {len(diffs)} file changes"]
+    for file in tool_files:
+        if file not in llm_files:
+            merged.append(file_to_tool_diff[file])
+        else:
+            merged.append({
+                "file": file,
+                "old_code": file_to_tool_diff[file].get("old_code", ""),
+                "new_code": file_to_llm_diff[file].get("new_code", ""),
+            })
+            
+    for file in llm_files:
+        if file not in tool_files:
+            merged.append(file_to_llm_diff[file])
+
+    state["diffs"] = merged
+    logger.info("Generated %s LLM diffs, merged total %s", len(llm_diffs), len(merged))
+    state["thinking_log"] = state.get("thinking_log", []) + [f"Generated {len(merged)} file changes"]
     return state
 
 async def plan_review_and_doc_checklist_node(state: AgentState) -> AgentState:

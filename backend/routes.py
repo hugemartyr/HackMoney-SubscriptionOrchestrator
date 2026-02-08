@@ -11,11 +11,11 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from agent.runner import resume_agent, run_agent
+from agent.runner import get_last_agent_run_id, resume_agent, run_agent
 from config import settings
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse, FileResponse
 from services.upload_service import upload_from_github
-from services.pending_diff_service import clear_pending_diffs, list_pending_diffs, pop_pending_diff
+from services.pending_diff_service import clear_pending_diffs, get_last_run_id, list_pending_diffs, pop_pending_diff
 from services.sandbox_fs_service import SKIP_DIRS, delete_file, get_file_tree, read_text_file, require_root, write_text_file
 from utils.logger import get_logger
 from utils.schemas.agent import AgentPromptRequest, ApplyAllRequest, DiffApproveRequest, ResumeRequest
@@ -259,24 +259,61 @@ async def apply_all(req: ApplyAllRequest):
     Keep/discard-all endpoint:
     - approved=true: apply all pending diffs
     - approved=false: discard all pending diffs
+
+    When runId is provided, also resumes the LangGraph workflow (same as /resume):
+    streams SSE events so the client can continue the agent run after approval/rejection.
+    When runId is omitted, returns JSON only (no resume).
     """
     logger.info(
         "Received /api/yellow-agent/apply request",
-        extra={"approved": req.approved, "runId": req.runId},
+        extra={"approved": req.approved, "runId": req.runId, "andResume": req.andResume},
     )
+    require_root()
+    approved_files: list[str] = []
+
     if not req.approved:
         await clear_pending_diffs(runId=req.runId)
         logger.info("Discarded all pending diffs", extra={"runId": req.runId})
-        return {"ok": True, "applied": 0}
+    else:
+        diffs = await list_pending_diffs(runId=req.runId)
+        for d in diffs:
+            await write_text_file(d.file, d.newCode)
+            approved_files.append(d.file)
+        await clear_pending_diffs(runId=req.runId)
+        logger.info(
+            "Applied all pending diffs",
+            extra={"runId": req.runId, "applied": len(approved_files)},
+        )
 
-    diffs = await list_pending_diffs(runId=req.runId)
-    applied = 0
-    for d in diffs:
-        await write_text_file(d.file, d.newCode)
-        applied += 1
-    await clear_pending_diffs(runId=req.runId)
-    logger.info("Applied all pending diffs", extra={"runId": req.runId, "applied": applied})
-    return {"ok": True, "applied": applied}
+    # Force resume when andResume: resolve run_id from client, pending-diff last run, or agent last run
+    run_id = (
+        req.runId
+        or get_last_run_id()
+        or get_last_agent_run_id()
+    )
+    if not req.andResume:
+        return {"ok": True, "applied": len(approved_files) if req.approved else 0}
+    if not run_id:
+        logger.warning("apply_all: andResume=True but no run_id available; returning JSON only")
+        return {"ok": True, "applied": len(approved_files) if req.approved else 0}
+
+    logger.info(
+        "apply_all: streaming resume for run_id=%s (approved=%s)",
+        run_id,
+        req.approved,
+        extra={"run_id": run_id},
+    )
+    async def gen():
+        async for event in resume_agent(run_id, req.approved, approved_files):
+            payload = json.dumps(event, ensure_ascii=False)
+            yield f"data: {payload}\n\n"
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+    }
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
 
 
 @router.get("/api/project/download")
@@ -309,4 +346,102 @@ async def download_project():
         extra={"size_bytes": len(data), "root": str(root)},
     )
     return Response(content=data, media_type="application/zip", headers=headers)
+
+
+@router.post("/api/project/save")
+async def save_project():
+    """
+    Save the current sandbox state as a zip file in backend/data/projects/{id}.zip.
+    Returns the project ID.
+    """
+    logger.info("Received /api/project/save request")
+    root = require_root()
+    project_id = uuid.uuid4().hex
+    
+    # Ensure projects directory exists
+    projects_dir = Path(__file__).parent / "data" / "projects"
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    
+    zip_path = projects_dir / f"{project_id}.zip"
+    
+    logger.info("Saving project zip", extra={"root": str(root), "zip_path": str(zip_path)})
+
+    with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for dirpath, dirnames, filenames in os.walk(root):
+            # Skip ignored dirs
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+
+            for filename in filenames:
+                abs_path = os.path.join(dirpath, filename)
+                rel_path = os.path.relpath(abs_path, root)
+                if rel_path.startswith(".."):
+                    continue
+                zf.write(abs_path, arcname=rel_path)
+                
+    logger.info("Project saved successfully", extra={"project_id": project_id})
+    return {"ok": True, "projectId": project_id}
+
+@router.get("/api/project/load/{project_id}")
+async def load_project(project_id: str):
+    """
+    Load a project from backend/data/projects/{id}.zip into the sandbox.
+    Clears existing sandbox content first.
+    """
+    logger.info("Received /api/project/load request", extra={"project_id": project_id})
+    
+    projects_dir = Path(__file__).parent / "data" / "projects"
+    zip_path = projects_dir / f"{project_id}.zip"
+    
+    if not zip_path.exists():
+        logger.warning("Project zip not found", extra={"zip_path": str(zip_path)})
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    sandbox_root = Path(settings.SANDBOX_DIR).resolve()
+    
+    if not str(sandbox_root).endswith("sandbox"):
+         logger.error("Sandbox path suspicious, aborting load", extra={"path": str(sandbox_root)})
+         raise HTTPException(status_code=500, detail="Sandbox configuration error")
+
+    if sandbox_root.exists():
+        import shutil
+        for item in sandbox_root.iterdir():
+            if item.name == ".git": continue 
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+    else:
+        sandbox_root.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Extracting project zip to sandbox", extra={"zip_path": str(zip_path), "sandbox": str(sandbox_root)})
+    
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        zf.extractall(sandbox_root)
+
+    from services.upload_service import _set_current_root
+    _set_current_root(sandbox_root)
+    
+    logger.info("Project loaded successfully")
+    return {"ok": True}
+
+
+@router.get("/api/project/download/{project_id}")
+async def download_project(project_id: str):
+    """
+    Download a project zip file from backend/data/projects/{id}.zip.
+    """
+    logger.info("Received /api/project/download request", extra={"project_id": project_id})
+    
+    projects_dir = Path(__file__).parent / "data" / "projects"
+    zip_path = projects_dir / f"{project_id}.zip"
+    
+    if not zip_path.exists():
+        logger.warning("Project zip not found for download", extra={"zip_path": str(zip_path)})
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return FileResponse(
+        path=zip_path,
+        filename=f"project_{project_id[:8]}.zip",
+        media_type="application/zip"
+    )
 
