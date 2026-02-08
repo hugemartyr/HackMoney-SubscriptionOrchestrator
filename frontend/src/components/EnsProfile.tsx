@@ -22,8 +22,8 @@ export function EnsProfile() {
     const displayName = ensName ?? `User-${address.slice(2, 6)}`
 
     return (
-        <div className="flex items-center gap-2 bg-gray-900 border border-gray-800 rounded-full px-3 py-1 scale-90 origin-right">
-            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 overflow-hidden flex items-center justify-center text-[10px] font-bold text-black border border-white/20">
+        <div className="flex items-center gap-2 bg-card/60 border border-border rounded-full px-3 py-1 scale-90 origin-right shadow-sm">
+            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-emerald to-primary overflow-hidden flex items-center justify-center text-[10px] font-bold text-primary-foreground border border-white/10 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
                 {ensAvatar ? (
                     <img src={ensAvatar} alt={displayName} className="w-full h-full object-cover" />
                 ) : (
@@ -31,8 +31,8 @@ export function EnsProfile() {
                 )}
             </div>
             <div className="flex flex-col">
-                <span className="text-xs font-semibold text-white leading-none">{displayName}</span>
-                {!ensName && <span className="text-[10px] text-gray-400 leading-none mt-0.5">{truncatedAddress}</span>}
+                <span className="text-xs font-semibold text-foreground leading-none">{displayName}</span>
+                {!ensName && <span className="text-[10px] text-muted-foreground leading-none mt-0.5">{truncatedAddress}</span>}
             </div>
         </div>
     )

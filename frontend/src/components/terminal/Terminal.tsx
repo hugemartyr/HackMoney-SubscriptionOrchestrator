@@ -78,40 +78,40 @@ export default function Terminal() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-gray-950 border-t border-gray-800 relative">
-      <div className="px-4 py-2 bg-gray-900 border-b border-gray-800 shrink-0">
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+    <div className="h-full flex flex-col bg-background border-t border-border relative">
+      <div className="px-4 py-2 bg-muted/30 border-b border-border shrink-0">
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
           Terminal
         </h3>
       </div>
       {/* Scrollable output only; input overlays at bottom */}
       <div
         ref={terminalRef}
-        className="flex-1 min-h-0 overflow-y-auto p-3 pb-14 font-mono text-xs sm:text-sm text-green-400 space-y-2"
-        style={{ backgroundColor: '#050505' }}
+        className="flex-1 min-h-0 overflow-y-auto p-3 pb-14 font-mono text-xs sm:text-sm text-primary space-y-2"
+        style={{ backgroundColor: 'hsl(var(--background))' }}
       >
         {state.terminalLogs.length === 0 ? (
-          <div className="text-gray-600">No output yet...</div>
+          <div className="text-muted-foreground">No output yet...</div>
         ) : (
           <div className="space-y-2">
             {groupedLogs.map((group, groupIndex) => (
               <div
                 key={groupIndex}
-                className="rounded-md border border-gray-800 bg-black/70 overflow-hidden"
+                className="rounded-md border border-border bg-card/40 overflow-hidden"
               >
                 {group.command && (
-                  <div className="px-3 py-1.5 bg-gray-900/90 border-b border-gray-800 flex items-center gap-2">
-                    <span className="text-[10px] uppercase tracking-[0.18em] text-gray-500">
+                  <div className="px-3 py-1.5 bg-muted/20 border-b border-border flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                       Command
                     </span>
-                    <span className="text-yellow-300 text-xs">
+                    <span className="text-emerald-glow text-xs">
                       {group.command.replace(/^>\s?/, '> ')}
                     </span>
                   </div>
                 )}
                 <div className="px-3 py-2 space-y-1">
                   {group.lines.length === 0 && group.command && (
-                    <div className="text-gray-700 text-[11px] italic">
+                    <div className="text-muted-foreground text-[11px] italic">
                       (no output)
                     </div>
                   )}
@@ -123,10 +123,10 @@ export default function Terminal() {
                       /error|failed|exception/i.test(trimmed);
 
                     const lineClass = isExit
-                      ? 'text-gray-500'
+                      ? 'text-muted-foreground/60'
                       : isError
-                        ? 'text-red-400'
-                        : 'text-green-400';
+                        ? 'text-destructive'
+                        : 'text-emerald';
 
                     return (
                       <div
@@ -144,10 +144,10 @@ export default function Terminal() {
         )}
       </div>
       {/* Input fixed at bottom so it stays visible and doesn't push down */}
-      <div className="absolute bottom-0 left-0 right-0 border-t border-gray-800 px-3 py-2 bg-gray-950/95 backdrop-blur-sm">
+      <div className="absolute bottom-0 left-0 right-0 border-t border-border px-3 py-2 bg-background/95 backdrop-blur-sm">
         <input
           type="text"
-          className="w-full bg-black text-green-400 font-mono text-sm px-2 py-1 rounded border border-gray-700 outline-none focus:border-yellow-500 disabled:opacity-60"
+          className="w-full bg-card/60 text-primary font-mono text-sm px-2 py-1 rounded border border-border outline-none focus:border-primary disabled:opacity-60"
           placeholder={
             state.isUploaded
               ? isRunning

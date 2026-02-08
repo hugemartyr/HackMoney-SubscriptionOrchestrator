@@ -185,8 +185,8 @@ export default function AgentChat() {
         <div className="border-b border-gray-800/80 bg-gray-950/80 backdrop-blur-sm px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-full bg-yellow-500/10 border border-yellow-500/50 flex items-center justify-center">
-                <Bot className="h-4 w-4 text-yellow-400" />
+              <div className="h-8 w-8 rounded-full bg-primary/10 border border-primary/50 flex items-center justify-center shadow-[0_0_10px_rgba(16,185,129,0.15)]">
+                <Bot className="h-4 w-4 text-primary" />
               </div>
               <div>
                 <div className="text-xs uppercase tracking-[0.18em] text-gray-500">
@@ -198,10 +198,10 @@ export default function AgentChat() {
               </div>
             </div>
             {isStreaming && (
-              <div className="flex items-center gap-2 text-xs text-yellow-300">
+              <div className="flex items-center gap-2 text-xs text-primary">
                 <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500" />
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
                 </span>
                 <span>Agent is thinking</span>
               </div>
@@ -221,17 +221,17 @@ export default function AgentChat() {
                         'flex-1 rounded-md px-2 py-1.5 text-[10px] text-center uppercase tracking-wide',
                         'transition-all duration-300',
                         isActive
-                          ? 'bg-yellow-500/20 border border-yellow-400/70 text-yellow-200 shadow-[0_0_18px_rgba(234,179,8,0.35)]'
-                          : 'bg-gray-900/80 border border-gray-700/70 text-gray-400',
+                          ? 'bg-primary/20 border border-primary/70 text-primary-foreground shadow-[0_0_18px_rgba(16,185,129,0.25)]'
+                          : 'bg-muted/50 border border-border text-muted-foreground',
                       ].join(' ')}
                     >
                       {label}
                     </div>
                     {index < 3 && (
                       <div className="w-6 h-px relative overflow-hidden">
-                        <div className="absolute inset-0 bg-gradient-to-r from-gray-700 via-yellow-500 to-gray-700 opacity-50" />
+                        <div className="absolute inset-0 bg-gradient-to-r from-border via-primary to-border opacity-50" />
                         {isStreaming && (
-                          <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(250,204,21,0.9),transparent)] animate-[slide-line_1200ms_linear_infinite]" />
+                          <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(16,185,129,0.9),transparent)] animate-[slide-line_1200ms_linear_infinite]" />
                         )}
                       </div>
                     )}
@@ -245,16 +245,74 @@ export default function AgentChat() {
         {/* Logs / Chat History */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-w-0">
           {logs.length === 0 && !state.auditResult && !state.approvalPending && (
-            <div className="text-gray-500 text-center mt-10">
-              <h3 className="text-lg font-bold text-yellow-500">Yellow Agent</h3>
+            <div className="text-muted-foreground text-center mt-10">
+              <h3 className="text-lg font-bold text-primary">Yellow Agent</h3>
               <p className="text-sm">Ready to integrate State Channels.</p>
+            </div>
+          )}
+
+          {/* Conversation + logs */}
+          {parsedMessages.length > 0 && (
+            <div className="space-y-2">
+              {parsedMessages.map((msg, i) => {
+                if (msg.role === 'user') {
+                  return (
+                    <div key={i} className="flex justify-end">
+                      <div className="max-w-[80%] flex items-end gap-2">
+                        <div className="rounded-2xl rounded-br-sm bg-primary text-primary-foreground px-3 py-2 text-xs sm:text-sm shadow-lg shadow-primary/20 transition-all duration-300">
+                          {msg.text}
+                        </div>
+                        <div className="h-7 w-7 rounded-full bg-primary flex items-center justify-center shadow-md shadow-primary/30">
+                          <User className="h-3 w-3 text-primary-foreground" />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (msg.role === 'agent') {
+                  return (
+                    <div key={i} className="flex justify-start">
+                      <div className="max-w-[80%] flex items-end gap-2">
+                        <div className="h-7 w-7 rounded-full bg-muted/50 border border-primary/60 flex items-center justify-center shadow-md shadow-primary/20">
+                          <Bot className="h-3 w-3 text-primary" />
+                        </div>
+                        <div className="rounded-2xl rounded-bl-sm bg-card/80 border border-border px-3 py-2 text-xs sm:text-sm text-foreground shadow-lg shadow-black/40 transition-all duration-300">
+                          {msg.text}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (msg.role === 'system') {
+                  return (
+                    <div
+                      key={i}
+                      className="text-[11px] sm:text-xs font-mono text-gray-400 bg-gray-900/60 border border-gray-800 rounded px-2 py-1"
+                    >
+                      {msg.text}
+                    </div>
+                  );
+                }
+
+                // raw log line
+                return (
+                  <div
+                    key={i}
+                    className="text-[11px] sm:text-xs font-mono border-l-2 border-primary/60 pl-2 py-1 text-foreground/80 bg-muted/30"
+                  >
+                    {msg.text}
+                  </div>
+                );
+              })}
             </div>
           )}
 
           {/* Audit Card */}
           {state.auditResult && (
-            <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-4 mb-4">
-              <h3 className="text-lg font-semibold text-yellow-400 mb-3">Audit Complete</h3>
+            <div className="bg-primary/10 border border-primary/50 rounded-lg p-4 mb-4 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
+              <h3 className="text-lg font-semibold text-primary mb-3">Audit Complete</h3>
               <div className="space-y-2 text-sm">
                 <div>
                   <span className="text-gray-400">Framework: </span>
@@ -280,7 +338,7 @@ export default function AgentChat() {
               <div className="flex gap-2 mt-4">
                 <button
                   onClick={handleProceed}
-                  className="flex-1 px-4 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded transition-colors"
+                  className="flex-1 px-4 py-2 bg-primary hover:bg-emerald-glow text-primary-foreground font-semibold rounded transition-colors shadow-[0_0_10px_rgba(16,185,129,0.2)]"
                 >
                   Proceed
                 </button>
@@ -296,10 +354,10 @@ export default function AgentChat() {
 
           {/* Approval Required Card */}
           {state.approvalPending && state.approvalFiles.length > 0 && (
-            <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-4 mb-4">
+            <div className="bg-primary/10 border border-primary/50 rounded-lg p-4 mb-4 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
               <div className="flex items-center gap-2 mb-3">
-                <AlertCircle size={16} className="text-yellow-400" />
-                <span className="text-yellow-400 font-semibold">
+                <AlertCircle size={16} className="text-primary" />
+                <span className="text-primary font-semibold">
                   Approval Required ({state.approvalFiles.length} files)
                 </span>
               </div>
@@ -328,19 +386,17 @@ export default function AgentChat() {
             </div>
           )}
 
-
-
           {/* Build Status */}
           {state.buildStatus !== 'idle' && (
             <div className={`rounded-lg p-4 mb-4 ${state.buildStatus === 'success'
-                ? 'bg-green-500/10 border border-green-500/50'
-                : state.buildStatus === 'error'
-                  ? 'bg-red-500/10 border border-red-500/50'
-                  : 'bg-yellow-500/10 border border-yellow-500/50'
+              ? 'bg-green-500/10 border border-green-500/50'
+              : state.buildStatus === 'error'
+                ? 'bg-red-500/10 border border-red-500/50'
+                : 'bg-primary/10 border border-primary/50 shadow-[0_0_15px_rgba(16,185,129,0.1)]'
               }`}>
               <div className="flex items-center gap-2 mb-2">
                 {state.buildStatus === 'building' && (
-                  <Loader2 size={16} className="text-yellow-400 animate-spin" />
+                  <Loader2 size={16} className="text-primary animate-spin" />
                 )}
                 {state.buildStatus === 'success' && (
                   <CheckCircle size={16} className="text-green-400" />
@@ -349,10 +405,10 @@ export default function AgentChat() {
                   <XCircle size={16} className="text-red-400" />
                 )}
                 <span className={`font-semibold ${state.buildStatus === 'success'
-                    ? 'text-green-400'
-                    : state.buildStatus === 'error'
-                      ? 'text-red-400'
-                      : 'text-yellow-400'
+                  ? 'text-green-400'
+                  : state.buildStatus === 'error'
+                    ? 'text-red-400'
+                    : 'text-primary'
                   }`}>
                   {state.buildStatus === 'building' && 'Building...'}
                   {state.buildStatus === 'success' && 'Build Successful!'}
@@ -375,70 +431,13 @@ export default function AgentChat() {
               )}
             </div>
           )}
-          {/* Conversation + logs */}
-          {parsedMessages.length > 0 && (
-            <div className="space-y-2">
-              {parsedMessages.map((msg, i) => {
-                if (msg.role === 'user') {
-                  return (
-                    <div key={i} className="flex justify-end">
-                      <div className="max-w-[80%] flex items-end gap-2">
-                        <div className="rounded-2xl rounded-br-sm bg-yellow-500 text-black px-3 py-2 text-xs sm:text-sm shadow-lg shadow-yellow-500/20 transition-all duration-300">
-                          {msg.text}
-                        </div>
-                        <div className="h-7 w-7 rounded-full bg-yellow-400 flex items-center justify-center shadow-md shadow-yellow-500/30">
-                          <User className="h-3 w-3 text-black" />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }
-
-                if (msg.role === 'agent') {
-                  return (
-                    <div key={i} className="flex justify-start">
-                      <div className="max-w-[80%] flex items-end gap-2">
-                        <div className="h-7 w-7 rounded-full bg-gray-900 border border-yellow-500/60 flex items-center justify-center shadow-md shadow-yellow-500/30">
-                          <Bot className="h-3 w-3 text-yellow-300" />
-                        </div>
-                        <div className="rounded-2xl rounded-bl-sm bg-gray-900/90 border border-gray-700 px-3 py-2 text-xs sm:text-sm text-gray-100 shadow-lg shadow-black/40 transition-all duration-300">
-                          {msg.text}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }
-
-                if (msg.role === 'system') {
-                  return (
-                    <div
-                      key={i}
-                      className="text-[11px] sm:text-xs font-mono text-gray-400 bg-gray-900/60 border border-gray-800 rounded px-2 py-1"
-                    >
-                      {msg.text}
-                    </div>
-                  );
-                }
-
-                // raw log line
-                return (
-                  <div
-                    key={i}
-                    className="text-[11px] sm:text-xs font-mono border-l-2 border-yellow-600/60 pl-2 py-1 text-gray-200 bg-gray-950/60"
-                  >
-                    {msg.text}
-                  </div>
-                );
-              })}
-            </div>
-          )}
 
           {isStreaming && (
-            <div className="mt-3 flex items-center gap-2 text-xs text-yellow-300">
+            <div className="mt-3 flex items-center gap-2 text-xs text-primary">
               <div className="flex gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 animate-bounce [animation-delay:-0.2s]" />
-                <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 animate-bounce [animation-delay:-0.05s]" />
-                <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 animate-bounce [animation-delay:0.1s]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:-0.2s]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:-0.05s]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:0.1s]" />
               </div>
               <span>Composing a response…</span>
             </div>
@@ -490,7 +489,7 @@ export default function AgentChat() {
             <button
               type="submit"
               disabled={isStreaming || !input.trim()}
-              className="absolute bottom-3 right-3 bg-yellow-500 hover:bg-yellow-400 text-black px-3 py-1.5 rounded-md text-xs font-bold transition-colors disabled:opacity-50 shadow-md shadow-yellow-500/40"
+              className="absolute bottom-3 right-3 bg-primary hover:bg-emerald-glow text-primary-foreground px-3 py-1.5 rounded-md text-xs font-bold transition-colors disabled:opacity-50 shadow-md shadow-primary/40"
             >
               SEND
             </button>

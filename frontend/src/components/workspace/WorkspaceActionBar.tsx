@@ -36,11 +36,11 @@ export default function WorkspaceActionBar({ terminalMinimized, onToggleTerminal
   };
 
   return (
-    <div className="h-14 flex items-center justify-between px-4 bg-gray-950 border-t border-gray-800">
+    <div className="h-14 flex items-center justify-between px-4 bg-background border-t border-border">
       <div className="flex items-center gap-4">
         <button
           onClick={onToggleTerminal}
-          className="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 rounded transition-colors"
+          className="px-3 py-1.5 text-xs bg-muted hover:bg-muted/80 text-muted-foreground rounded transition-colors border border-border"
         >
           {terminalMinimized ? 'Show Terminal' : 'Minimize Terminal'}
         </button>
@@ -49,12 +49,12 @@ export default function WorkspaceActionBar({ terminalMinimized, onToggleTerminal
       <div className="flex items-center gap-3">
         <ConnectButton accountStatus="avatar" chainStatus="icon" showBalance={false} />
 
-        <div className="h-6 w-px bg-gray-800 mx-1" />
+        <div className="h-6 w-px bg-border mx-1" />
 
         <button
           onClick={handleSave}
           disabled={isSaving}
-          className="px-4 py-1.5 text-sm bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-4 py-1.5 text-sm bg-primary hover:bg-emerald-glow text-primary-foreground font-semibold rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_15px_rgba(16,185,129,0.2)]"
         >
           {isSaving ? 'Saving...' : 'Save to Dashboard'}
         </button>

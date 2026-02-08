@@ -49,7 +49,7 @@ const FileNode = ({ node, onSelect, onContextMenu, currentFile }: FileNodeProps)
         className="flex items-center gap-2 p-1 hover:bg-gray-800 cursor-pointer text-sm text-gray-100 font-bold overflow-hidden"
       >
         {isOpen ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />}
-        <Folder size={14} className="text-yellow-500 shrink-0" />
+        <Folder size={14} className="text-primary shrink-0" />
         <span className="truncate">{node.name}</span>
       </div>
 

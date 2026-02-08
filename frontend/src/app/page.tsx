@@ -154,10 +154,10 @@ export default function WorkspacePage() {
         {/* Top Header */}
         <header className="h-12 border-b border-gray-800 bg-black flex items-center justify-between px-4 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-6 h-6 rounded bg-yellow-500 flex items-center justify-center text-black font-bold text-xs ring-1 ring-white/20">
+            <div className="w-6 h-6 rounded bg-primary flex items-center justify-center text-primary-foreground font-bold text-xs ring-1 ring-white/10 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
               Y
             </div>
-            <h1 className="text-sm font-bold tracking-tight text-gray-200">
+            <h1 className="text-sm font-bold tracking-tight text-foreground/90 font-mono">
               {projectId ? `Project: ${projectId.slice(0, 8)}` : 'Yellow Agent Factory'}
             </h1>
           </div>
@@ -199,7 +199,7 @@ export default function WorkspacePage() {
                 role="separator"
                 aria-orientation="vertical"
                 aria-label="Resize editor and agent chat"
-                className="hidden md:block w-1 cursor-col-resize bg-gray-800/70 hover:bg-yellow-500/70 transition-colors"
+                className="hidden md:block w-1 cursor-col-resize bg-border hover:bg-primary/50 transition-colors"
                 onMouseDown={(e) => {
                   e.preventDefault();
                   setIsDraggingVertical(true);
@@ -232,7 +232,7 @@ export default function WorkspacePage() {
               role="separator"
               aria-orientation="horizontal"
               aria-label="Resize workspace and terminal"
-              className="h-1 cursor-row-resize bg-gray-800/70 hover:bg-yellow-500/70 transition-colors"
+              className="h-1 cursor-row-resize bg-border hover:bg-primary/50 transition-colors"
               onMouseDown={(e) => {
                 e.preventDefault();
                 setIsDraggingHorizontal(true);
