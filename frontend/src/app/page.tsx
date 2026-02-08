@@ -184,7 +184,7 @@ export default function WorkspacePage() {
             <div className="flex-1 flex flex-col md:flex-row min-h-0">
               {/* Left: Code Editor */}
               <div
-                className="border-r border-gray-800 min-h-0"
+                className="border-r border-gray-800 min-h-0 min-w-0 flex flex-col"
                 style={{
                   flexBasis: `${editorChatRatio * 100}%`,
                   flexGrow: 0,
@@ -208,7 +208,7 @@ export default function WorkspacePage() {
 
               {/* Right: Agent Interface */}
               <div
-                className="flex flex-col bg-gray-900 border-r border-gray-800 min-h-0"
+                className="flex flex-col bg-gray-900 border-r border-gray-800 min-h-0 min-w-0"
                 style={{
                   flexBasis: `${(1 - editorChatRatio) * 100}%`,
                   flexGrow: 1,
@@ -242,7 +242,7 @@ export default function WorkspacePage() {
 
           {/* Bottom: Terminal */}
           <div
-            className="border-t border-gray-800 bg-black"
+            className="border-t border-gray-800 bg-black min-h-0"
             style={{
               flexBasis: terminalMinimized ? '40px' : `${(1 - mainTerminalRatio) * 100}%`,
               flexGrow: 0,

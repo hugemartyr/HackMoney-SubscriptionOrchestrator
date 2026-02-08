@@ -64,7 +64,7 @@ export default function AgentChat() {
     e.preventDefault();
     if (isStreaming) return;
     if (!input.trim()) return;
-    
+
     startAgent(input);
     setInput("");
   };
@@ -243,7 +243,7 @@ export default function AgentChat() {
         </div>
 
         {/* Logs / Chat History */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-w-0">
           {logs.length === 0 && !state.auditResult && !state.approvalPending && (
             <div className="text-gray-500 text-center mt-10">
               <h3 className="text-lg font-bold text-yellow-500">Yellow Agent</h3>
@@ -332,13 +332,12 @@ export default function AgentChat() {
 
           {/* Build Status */}
           {state.buildStatus !== 'idle' && (
-            <div className={`rounded-lg p-4 mb-4 ${
-              state.buildStatus === 'success' 
-                ? 'bg-green-500/10 border border-green-500/50' 
+            <div className={`rounded-lg p-4 mb-4 ${state.buildStatus === 'success'
+                ? 'bg-green-500/10 border border-green-500/50'
                 : state.buildStatus === 'error'
-                ? 'bg-red-500/10 border border-red-500/50'
-                : 'bg-yellow-500/10 border border-yellow-500/50'
-            }`}>
+                  ? 'bg-red-500/10 border border-red-500/50'
+                  : 'bg-yellow-500/10 border border-yellow-500/50'
+              }`}>
               <div className="flex items-center gap-2 mb-2">
                 {state.buildStatus === 'building' && (
                   <Loader2 size={16} className="text-yellow-400 animate-spin" />
@@ -349,13 +348,12 @@ export default function AgentChat() {
                 {state.buildStatus === 'error' && (
                   <XCircle size={16} className="text-red-400" />
                 )}
-                <span className={`font-semibold ${
-                  state.buildStatus === 'success' 
-                    ? 'text-green-400' 
+                <span className={`font-semibold ${state.buildStatus === 'success'
+                    ? 'text-green-400'
                     : state.buildStatus === 'error'
-                    ? 'text-red-400'
-                    : 'text-yellow-400'
-                }`}>
+                      ? 'text-red-400'
+                      : 'text-yellow-400'
+                  }`}>
                   {state.buildStatus === 'building' && 'Building...'}
                   {state.buildStatus === 'success' && 'Build Successful!'}
                   {state.buildStatus === 'error' && 'Build Failed'}
@@ -447,36 +445,36 @@ export default function AgentChat() {
           )}
         </div>
 
-       {/* Pending Diffs Summary */}
-                  {Object.keys(state.pendingDiffs).length > 0 && (
-            <div className="bg-blue-500/10 border border-blue-500/50 rounded-lg p-4 mb-4">
-              <div className="flex items-center gap-2 mb-3">
-                <FileDiff size={16} className="text-blue-400" />
-                <span className="text-blue-400 font-semibold">
-                  Changes Ready for Review ({Object.keys(state.pendingDiffs).length})
-                </span>
-              </div>
-              <p className="text-sm text-gray-300 mb-3">
-                Diffs are opened as editor tabs. Review and edit them, then apply from the tab or use Apply/Discard All.
-              </p>
-                <div className="flex gap-2 pt-2 border-t border-gray-700">
-                  <button
-                    onClick={() => handleApplyAll(true)}
-                    disabled={isApplying || isStreaming}
-                    className="flex-1 px-4 py-2 bg-green-500 hover:bg-green-400 text-white font-semibold rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isApplying ? 'Applying…' : 'Approve All'}
-                  </button>
-                  <button
-                    onClick={() => handleApplyAll(false)}
-                    disabled={isApplying || isStreaming}
-                    className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-400 text-white font-semibold rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Discard All
-                  </button>
-                </div>
+        {/* Pending Diffs Summary */}
+        {Object.keys(state.pendingDiffs).length > 0 && (
+          <div className="bg-blue-500/10 border border-blue-500/50 rounded-lg p-4 mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <FileDiff size={16} className="text-blue-400" />
+              <span className="text-blue-400 font-semibold">
+                Changes Ready for Review ({Object.keys(state.pendingDiffs).length})
+              </span>
             </div>
-          )}
+            <p className="text-sm text-gray-300 mb-3">
+              Diffs are opened as editor tabs. Review and edit them, then apply from the tab or use Apply/Discard All.
+            </p>
+            <div className="flex gap-2 pt-2 border-t border-gray-700">
+              <button
+                onClick={() => handleApplyAll(true)}
+                disabled={isApplying || isStreaming}
+                className="flex-1 px-4 py-2 bg-green-500 hover:bg-green-400 text-white font-semibold rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isApplying ? 'Applying…' : 'Approve All'}
+              </button>
+              <button
+                onClick={() => handleApplyAll(false)}
+                disabled={isApplying || isStreaming}
+                className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-400 text-white font-semibold rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Discard All
+              </button>
+            </div>
+          </div>
+        )}
 
 
         {/* Input Area */}
@@ -489,8 +487,8 @@ export default function AgentChat() {
               className="w-full bg-gray-900 text-white rounded-lg p-3 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-500 min-h-[80px] border border-gray-800/80 pr-20"
               disabled={isStreaming}
             />
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={isStreaming || !input.trim()}
               className="absolute bottom-3 right-3 bg-yellow-500 hover:bg-yellow-400 text-black px-3 py-1.5 rounded-md text-xs font-bold transition-colors disabled:opacity-50 shadow-md shadow-yellow-500/40"
             >

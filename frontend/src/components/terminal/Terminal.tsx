@@ -125,13 +125,13 @@ export default function Terminal() {
                     const lineClass = isExit
                       ? 'text-gray-500'
                       : isError
-                      ? 'text-red-400'
-                      : 'text-green-400';
+                        ? 'text-red-400'
+                        : 'text-green-400';
 
                     return (
                       <div
                         key={index}
-                        className={`text-[11px] sm:text-xs leading-relaxed ${lineClass}`}
+                        className={`text-[11px] sm:text-xs leading-relaxed break-all overflow-hidden ${lineClass}`}
                       >
                         {trimmed}
                       </div>

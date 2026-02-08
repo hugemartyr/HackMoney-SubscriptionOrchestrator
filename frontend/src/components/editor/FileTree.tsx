@@ -27,38 +27,38 @@ const FileNode = ({ node, onSelect, onContextMenu, currentFile }: FileNodeProps)
 
   if (node.type === "file") {
     return (
-      <div 
+      <div
         onClick={() => onSelect(node.path)}
         onContextMenu={handleContextMenu}
         className={`
-          flex items-center gap-2 p-1 hover:bg-gray-800 cursor-pointer text-sm pl-4
+          flex items-center gap-2 p-1 hover:bg-gray-800 cursor-pointer text-sm pl-4 overflow-hidden
           ${isSelected ? 'bg-gray-800 text-white' : 'text-gray-300'}
         `}
       >
-        <FileCode size={14} className="text-blue-400" />
-        {node.name}
+        <FileCode size={14} className="text-blue-400 shrink-0" />
+        <span className="truncate">{node.name}</span>
       </div>
     );
   }
 
   return (
     <div>
-      <div 
+      <div
         onClick={() => setIsOpen(!isOpen)}
         onContextMenu={handleContextMenu}
-        className="flex items-center gap-2 p-1 hover:bg-gray-800 cursor-pointer text-sm text-gray-100 font-bold"
+        className="flex items-center gap-2 p-1 hover:bg-gray-800 cursor-pointer text-sm text-gray-100 font-bold overflow-hidden"
       >
-        {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <Folder size={14} className="text-yellow-500" />
-        {node.name}
+        {isOpen ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />}
+        <Folder size={14} className="text-yellow-500 shrink-0" />
+        <span className="truncate">{node.name}</span>
       </div>
-      
+
       {isOpen && node.children && (
         <div className="pl-4 border-l border-gray-700 ml-2">
           {node.children.map((child) => (
-            <FileNode 
-              key={child.path} 
-              node={child} 
+            <FileNode
+              key={child.path}
+              node={child}
               onSelect={onSelect}
               onContextMenu={onContextMenu}
               currentFile={currentFile}
@@ -76,7 +76,7 @@ export default function FileTree() {
 
   const handleSelect = async (path: string) => {
     openFile(path);
-    
+
     // If file content not cached, fetch it
     if (!state.fileContents[path]) {
       try {
@@ -97,23 +97,23 @@ export default function FileTree() {
   const handleNewFile = async () => {
     if (!contextMenu) return;
 
-    const parentPath = contextMenu.isFile 
+    const parentPath = contextMenu.isFile
       ? contextMenu.path.split('/').slice(0, -1).join('/') || ''
       : contextMenu.path;
-    
+
     const fileName = prompt('Enter file name:');
     if (!fileName || !fileName.trim()) return;
 
     const newPath = parentPath ? `${parentPath}/${fileName.trim()}` : fileName.trim();
-    
+
     try {
       // Create empty file
       await putFileContent(newPath, '');
-      
+
       // Refresh file tree
       const tree = await getFileTree();
       updateFileTree(tree);
-      
+
       // Open the new file
       openFile(newPath);
       updateFileContent(newPath, '');
@@ -130,12 +130,12 @@ export default function FileTree() {
 
     try {
       await deleteFile(contextMenu.path);
-      
+
       // Close file if it's open
       if (state.openFiles.includes(contextMenu.path)) {
         closeFile(contextMenu.path);
       }
-      
+
       // Refresh file tree
       const tree = await getFileTree();
       updateFileTree(tree);
@@ -163,14 +163,14 @@ export default function FileTree() {
         <div className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">
           Explorer
         </div>
-        <FileNode 
-          node={state.fileTree} 
+        <FileNode
+          node={state.fileTree}
           onSelect={handleSelect}
           onContextMenu={handleContextMenu}
           currentFile={state.currentFile}
         />
       </div>
-      
+
       {contextMenu && (
         <ContextMenu
           x={contextMenu.x}
