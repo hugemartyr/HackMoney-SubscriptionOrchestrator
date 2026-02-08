@@ -265,21 +265,77 @@ yellow_yellow/
 
 ---
 
-## Getting Started
+## How to Run
 
-### Backend Setup
+### Quick Start (Makefile)
+
 ```bash
-cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload
+# Install all dependencies (backend venv + frontend npm)
+make install
+
+# Run everything: Backend (port 8000), Dashboard (8080), Editor (3000)
+make dev
 ```
 
-### Frontend Setup
+### Run Individual Components
+
+```bash
+make backend    # FastAPI backend on http://localhost:8000
+make dashboard  # Agent-Nexus Dashboard on http://localhost:8080
+make editor     # Yellow Agent Editor on http://localhost:3000
+```
+
+### Backend Setup (Manual)
+
+The `make backend` target will:
+1. Create a Python venv in `backend/.venv` if it doesn't exist
+2. Activate it and install `requirements.txt`
+3. Run the app with uvicorn
+
+To run manually:
+
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate   # On Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Frontend Setup (Manual)
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
+
+---
+
+## Environment Variables
+
+You **must** configure environment variables before running the backend.
+
+1. Copy the example file:
+   ```bash
+   cp backend/.env.local.example backend/.env.local
+   ```
+
+2. Edit `backend/.env.local` and fill in your values:
+
+   | Variable | Required | Description |
+   |----------|----------|-------------|
+   | `LANGSMITH_TRACING` | No | Set to `true` for LangChain tracing |
+   | `LANGSMITH_ENDPOINT` | No | LangSmith API endpoint |
+   | `LANGSMITH_API_KEY` | Yes* | Get from [smith.langchain.com](https://smith.langchain.com) |
+   | `LANGSMITH_PROJECT` | No | Project name for traces (e.g. `yellow`) |
+   | `BACKEND_LOG_LEVEL` | No | `DEBUG`, `INFO`, `WARNING`, `ERROR` (default: `INFO`) |
+   | `OPENROUTER_API_KEY` | **Yes** | Get from [openrouter.ai](https://openrouter.ai) |
+   | `OPENROUTER_MODEL` | No | Model override (e.g. `Xiaomi MiMo-V2-Flash`) |
+
+   \* Required if `LANGSMITH_TRACING=true`
+
+3. `.env.local` is git-ignored. Never commit real API keys.
 
 ---
 
