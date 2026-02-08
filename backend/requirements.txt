@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+langgraph
+langchain
+langchain-anthropic
+langchain-google-genai
+langchain-openai
+langsmith
+e2b-code-interpreter
+python-multipart
+supabase
+chromadb>=0.4.0
+langchain-chroma
+langchain-community
+requests

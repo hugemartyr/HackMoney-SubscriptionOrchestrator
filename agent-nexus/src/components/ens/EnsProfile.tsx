@@ -31,7 +31,7 @@ export function EnsProfile({ address: propAddress, showAddress = true, className
     if (!address) return null
 
     const truncatedAddress = `${address.slice(0, 6)}...${address.slice(-4)}`
-    const displayName = ensName ?? truncatedAddress
+    const displayName = ensName ?? `User-${address.slice(2, 6)}`
     const isLoading = nameLoading || avatarLoading
 
     return (
